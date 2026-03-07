@@ -1,7 +1,7 @@
 import { SeedProvider } from './SeedProvider';
 import { MazeGenerator } from './MazeGenerator';
 import { SaveManager } from './SaveManager';
-import { CHUNK_TILES, MID, TileType, ChunkType } from '../constants';
+import { CHUNK_TILES, MID, TileType, ChunkType, ITEM_POOL, SHOP_OFFER_COUNT } from '../constants';
 import type { ChunkData, AnchoredChunkData } from '../types';
 
 export class ChunkManager {
@@ -61,6 +61,9 @@ export class ChunkManager {
           enemies: [],
           chestUnlocked: true,
           chestOpened: true,
+          shopPurchased: false,
+          shopOffers: [],
+          shopRefreshAt: 0,
           state: 'anchored',
           seed: 0,
         });
@@ -80,6 +83,9 @@ export class ChunkManager {
           enemies: [],
           chestUnlocked: true,
           chestOpened: true,
+          shopPurchased: false,
+          shopOffers: [],   // 锚定商店由 GameScene.tryOpenShop 按时间刷新
+          shopRefreshAt: 0,
           state: 'anchored',
           seed: 0,
         });
@@ -101,10 +107,16 @@ export class ChunkManager {
     const fragments = (wasLiberated || !isWild) ? [] : MazeGenerator.placeFragments(grid, seed, cx, cy);
     const enemies   = (wasLiberated || !isEnemy) ? [] : MazeGenerator.placeEnemies(grid, seed, cx, cy);
 
+    const isShop  = chunkType === ChunkType.Shop;
+    const shopOffers = isShop ? this.rollShopOffers(seed) : [];
+
     const chunk: ChunkData = {
       cx, cy, grid, fragments, enemies, chunkType,
       chestUnlocked: wasLiberated,
       chestOpened: wasLiberated,
+      shopPurchased: wasLiberated && isShop,
+      shopOffers,
+      shopRefreshAt: 0,
       state: 'uncharted',
       seed,
     };
@@ -128,6 +140,7 @@ export class ChunkManager {
   anchorChunk(cx: number, cy: number, grid: number[][]): boolean {
     const k = this.key(cx, cy);
     const existingType = this.chunks.get(k)?.chunkType ?? ChunkType.Wild;
+    const existingSeed = this.chunks.get(k)?.seed ?? 0;
     this.anchoredData[k] = { grid, type: existingType, anchoredAt: Date.now() };
     SaveManager.saveAnchored(this.anchoredData);
 
@@ -139,6 +152,9 @@ export class ChunkManager {
       enemies: [],
       chestUnlocked: true,
       chestOpened: true,
+      shopPurchased: false,
+      shopOffers: existingType === ChunkType.Shop ? this.rollShopOffers(existingSeed) : [],
+      shopRefreshAt: 0,
       state: 'anchored',
       seed: 0,
     });
@@ -171,5 +187,18 @@ export class ChunkManager {
     if (ty < 0 || ty >= CHUNK_TILES || tx < 0 || tx >= CHUNK_TILES) return false;
     const t = grid[ty][tx];
     return t === TileType.Floor || t === TileType.Exit;
+  }
+
+  /** 用 seed 派生 SHOP_OFFER_COUNT 件不重复商品 */
+  rollShopOffers(seed: number): (typeof ITEM_POOL[number])[] {
+    const pool = [...ITEM_POOL];
+    const offers: (typeof ITEM_POOL[number])[] = [];
+    let s = (seed >>> 0) || 1;
+    for (let i = 0; i < SHOP_OFFER_COUNT && pool.length > 0; i++) {
+      s = Math.imul(s + 0x9e3779b9, 0x6c62272e) >>> 0;
+      const idx = s % pool.length;
+      offers.push(pool.splice(idx, 1)[0]);
+    }
+    return offers;
   }
 }
