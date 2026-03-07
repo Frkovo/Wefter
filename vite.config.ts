@@ -8,6 +8,7 @@ export default defineConfig({
     rollupOptions: {
       external: ['phaser'],
       output: {
+        format: 'iife',
         globals: {
           phaser: 'Phaser',
         },
