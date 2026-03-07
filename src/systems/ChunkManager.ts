@@ -33,10 +33,10 @@ export class ChunkManager {
   private chunkTypeFor(cx: number, cy: number): ChunkType {
     // 位置哈希：与 seed 无关，同一坐标永远相同类型
     const n = ((Math.imul(cx, 0x9e3779b9) ^ Math.imul(cy, 0x6c62272e)) >>> 0);
-    const r = n % 10;
-    if (r < 6) return ChunkType.Wild;
-    if (r < 8) return ChunkType.Shop;
-    return ChunkType.Enemy;
+    const r = n % 20;
+    if (r < 12) return ChunkType.Wild;   // 60%
+    if (r < 19) return ChunkType.Enemy;  // 35%
+    return ChunkType.Shop;               // 5%
   }
 
   isAnchored(cx: number, cy: number): boolean {
@@ -58,6 +58,7 @@ export class ChunkManager {
           chunkType: ChunkType.Wild,
           grid: MazeGenerator.generateHome(),
           fragments: [],
+          enemies: [],
           chestUnlocked: true,
           chestOpened: true,
           state: 'anchored',
@@ -76,6 +77,7 @@ export class ChunkManager {
           chunkType: storedType,
           grid: this.anchoredData[k].grid,
           fragments: [],
+          enemies: [],
           chestUnlocked: true,
           chestOpened: true,
           state: 'anchored',
@@ -94,11 +96,13 @@ export class ChunkManager {
     const wasLiberated = this.liberatedData[k] ?? false;
     const chunkType = this.chunkTypeFor(cx, cy);
     const grid = MazeGenerator.generate(seed);
-    const isWild = chunkType === ChunkType.Wild;
+    const isWild  = chunkType === ChunkType.Wild;
+    const isEnemy = chunkType === ChunkType.Enemy;
     const fragments = (wasLiberated || !isWild) ? [] : MazeGenerator.placeFragments(grid, seed, cx, cy);
+    const enemies   = (wasLiberated || !isEnemy) ? [] : MazeGenerator.placeEnemies(grid, seed, cx, cy);
 
     const chunk: ChunkData = {
-      cx, cy, grid, fragments, chunkType,
+      cx, cy, grid, fragments, enemies, chunkType,
       chestUnlocked: wasLiberated,
       chestOpened: wasLiberated,
       state: 'uncharted',
@@ -132,6 +136,7 @@ export class ChunkManager {
       cx, cy, grid,
       chunkType: existingType,
       fragments: [],
+      enemies: [],
       chestUnlocked: true,
       chestOpened: true,
       state: 'anchored',

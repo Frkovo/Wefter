@@ -161,6 +161,66 @@ export class BootScene extends Phaser.Scene {
         g.fillRect(S * 0.15, S * 0.2, S * 0.7, S * 0.2);
       },
     );
+
+    // ── 敌人 ──────────────────────────────────────────────────────
+
+    // 巡逻者 — 蓝色实心圆 + 圆环（无威胁感）
+    this.tex('scout', S, (g) => {
+      g.fillStyle(0x2244cc, 0.9);
+      g.fillCircle(half, half, S / 3);
+      g.lineStyle(2, 0x4488ff, 1);
+      g.strokeCircle(half, half, S / 3);
+      g.fillStyle(0xffffff, 0.7);
+      g.fillCircle(half, half - 3, 3);
+    });
+
+    // 追击者 — 红色菱形（威胁感）
+    this.tex('chaser', S, (g) => {
+      const r = S * 0.33;
+      g.fillStyle(0xcc2222, 1);
+      g.beginPath();
+      g.moveTo(half, half - r);
+      g.lineTo(half + r, half);
+      g.lineTo(half, half + r);
+      g.lineTo(half - r, half);
+      g.closePath();
+      g.fillPath();
+      g.lineStyle(2, 0xff4444, 1);
+      g.strokePath();
+    });
+
+    // 狙击者 — 黄色十字准星
+    this.tex('sniper', S, (g) => {
+      g.fillStyle(0x887700, 1);
+      g.fillRect(half - 3, 2, 6, S - 4);
+      g.fillRect(2, half - 3, S - 4, 6);
+      g.lineStyle(2, 0xffdd00, 1);
+      g.strokeCircle(half, half, S / 3);
+      g.fillStyle(0xffdd00, 1);
+      g.fillCircle(half, half, 3);
+    });
+
+    // 玩家子弹 — 绿色小点
+    this.tex('bullet_p', 10, (g) => {
+      g.fillStyle(0x00ff88, 1);
+      g.fillCircle(5, 5, 4);
+      g.fillStyle(0xffffff, 0.5);
+      g.fillCircle(3, 3, 1);
+    });
+
+    // 敌人子弹 — 橙红色小点
+    this.tex('bullet_e', 10, (g) => {
+      g.fillStyle(0xff6644, 1);
+      g.fillCircle(5, 5, 4);
+    });
+
+    // 广播穿墙子弹 — 紫色
+    this.tex('bullet_e_pierce', 10, (g) => {
+      g.fillStyle(0xcc44ff, 1);
+      g.fillCircle(5, 5, 4);
+      g.lineStyle(1, 0xff88ff, 0.8);
+      g.strokeCircle(5, 5, 4);
+    });
   }
 
   /** 快捷生成纹理 */

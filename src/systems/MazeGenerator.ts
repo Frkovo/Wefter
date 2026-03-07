@@ -1,6 +1,6 @@
 import { LCG } from '../utils/LCG';
 import { CHUNK_TILES, MID, FRAGMENT_COUNT, TileType } from '../constants';
-import type { FragmentInfo } from '../types';
+import type { FragmentInfo, EnemyData, EnemyKind } from '../types';
 
 type Cell = [number, number]; // [cx, cy] in cell coordinates
 
@@ -195,5 +195,74 @@ export class MazeGenerator {
       id: `frag_${cx}_${cy}_${i}`,
       collected: false,
     }));
+  }
+
+  /**
+   * 在敌营区块中放置三类敌人（排除中心区和出口通道）
+   */
+  static placeEnemies(grid: number[][], seed: number, cx: number, cy: number): EnemyData[] {
+    const rng = new LCG((seed ^ 0xcafebabe) >>> 0);
+    const dist = Math.abs(cx) + Math.abs(cy);
+
+    const numScouts  = Math.min(3, 1 + Math.floor(dist / 4));
+    const numChasers = Math.min(4, 1 + Math.floor(dist / 3));
+    const numSnipers = Math.min(2, Math.floor(dist / 4));
+
+    // 收集候选地板格（排除中心区、出口通道、边界）
+    const candidates: [number, number][] = [];
+    for (let y = 1; y < CHUNK_TILES - 1; y++) {
+      for (let x = 1; x < CHUNK_TILES - 1; x++) {
+        if (grid[y][x] !== TileType.Floor) continue;
+        if (Math.abs(x - MID) <= 3 && Math.abs(y - MID) <= 3) continue;
+        if (x === MID && y <= 2) continue;
+        if (x === MID && y >= CHUNK_TILES - 3) continue;
+        if (y === MID && x <= 2) continue;
+        if (y === MID && x >= CHUNK_TILES - 3) continue;
+        candidates.push([x, y]);
+      }
+    }
+    rng.shuffle(candidates);
+
+    const enemies: EnemyData[] = [];
+    const occupied = new Set<string>();
+    let idx = 0;
+
+    const place = (kind: EnemyKind, hp: number): EnemyData | null => {
+      while (idx < candidates.length) {
+        const [x, y] = candidates[idx++];
+        const k = `${x},${y}`;
+        if (occupied.has(k)) continue;
+        occupied.add(k);
+
+        const visibleCells: string[] = [];
+        if (kind === 'sniper') {
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+            let nx = x + dx, ny = y + dy;
+            while (nx >= 0 && nx < CHUNK_TILES && ny >= 0 && ny < CHUNK_TILES
+                   && grid[ny][nx] !== TileType.Wall) {
+              visibleCells.push(`${nx},${ny}`);
+              nx += dx; ny += dy;
+            }
+          }
+        }
+
+        return {
+          id: `${kind}_${cx}_${cy}_${enemies.length}`,
+          kind, x, y, hp, maxHp: hp,
+          activated: false,
+          stepCount: 0,
+          attackTimer: 3 + (rng.next() % 2),
+          visibleCells,
+          broadcasting: false,
+        };
+      }
+      return null;
+    };
+
+    for (let i = 0; i < numScouts;  i++) { const e = place('scout',  2); if (e) enemies.push(e); }
+    for (let i = 0; i < numChasers; i++) { const e = place('chaser', 3); if (e) enemies.push(e); }
+    for (let i = 0; i < numSnipers; i++) { const e = place('sniper', 2); if (e) enemies.push(e); }
+
+    return enemies;
   }
 }

@@ -3,8 +3,11 @@ import {
   TILE_SIZE, CHUNK_TILES, CHUNK_PX, VIEWPORT_W, VIEWPORT_H,
   OFFSET_X, OFFSET_Y, MID, FRAGMENT_COUNT, PLAYER_MOVE_SPEED,
   TileType, Colors, ChunkType,
+  PLAYER_MAX_HP, HEAL_BANK_MAX, HEAL_BANK_REGEN_MS,
+  SCOUT_DETECT_RADIUS, CHASER_DETECT_STEPS,
+  SNIPER_DETECT_STEPS, PLAYER_FIRE_RANGE, SNIPER_FIRE_RATE,
 } from '../constants';
-import type { ChunkData, MapKey, SaveData } from '../types';
+import type { ChunkData, MapKey, SaveData, EnemyData } from '../types';
 import { SeedProvider } from '../systems/SeedProvider';
 import { ChunkManager } from '../systems/ChunkManager';
 import { SaveManager } from '../systems/SaveManager';
@@ -28,9 +31,17 @@ export class GameScene extends Phaser.Scene {
   private gameLayer!: Phaser.GameObjects.Container;
   private mapLayer!: Phaser.GameObjects.Container;
   private fragmentLayer!: Phaser.GameObjects.Container;
+  private enemyLayer!: Phaser.GameObjects.Container;
   private player!: Phaser.GameObjects.Sprite;
   private chestSprite: Phaser.GameObjects.Sprite | null = null;
   private fragmentSprites = new Map<string, Phaser.GameObjects.Sprite>();
+  private enemySprites  = new Map<string, Phaser.GameObjects.Sprite>();
+  private enemyHpBars   = new Map<string, Phaser.GameObjects.Graphics>();
+
+  // Player combat
+  private playerHp = PLAYER_MAX_HP;
+  private healBank = HEAL_BANK_MAX;
+  private playerInvincible = false;
 
   // Movement
   private isMoving = false;
@@ -78,17 +89,20 @@ export class GameScene extends Phaser.Scene {
     if (save) {
       this.playerChunkX = save.chunkX;
       this.playerChunkY = save.chunkY;
-      this.playerTileX = save.tileX;
-      this.playerTileY = save.tileY;
-      this.playerKeys = save.keys || [];
+      this.playerTileX  = save.tileX;
+      this.playerTileY  = save.tileY;
+      this.playerKeys   = save.keys || [];
+      this.playerHp     = save.hp   ?? PLAYER_MAX_HP;
+      this.healBank     = save.healBank ?? HEAL_BANK_MAX;
     }
 
     // ---- 渲染层（gameLayer 用 offset 保证居中）----
     this.gameLayer = this.add.container(OFFSET_X, OFFSET_Y);
     this.mapLayer = this.add.container(0, 0);
     this.fragmentLayer = this.add.container(0, 0);
+    this.enemyLayer = this.add.container(0, 0);
     const entityLayer = this.add.container(0, 0);
-    this.gameLayer.add([this.mapLayer, this.fragmentLayer, entityLayer]);
+    this.gameLayer.add([this.mapLayer, this.fragmentLayer, this.enemyLayer, entityLayer]);
 
     this.player = this.add.sprite(0, 0, 'player').setDepth(10);
     entityLayer.add(this.player);
@@ -137,6 +151,20 @@ export class GameScene extends Phaser.Scene {
     // ---- 自动保存 ----
     this.time.addEvent({ delay: 5000, callback: () => this.autoSave(), loop: true });
 
+    // ---- 回血储量计时器（实时，2分钟 +1，上限200）----
+    this.time.addEvent({
+      delay: HEAL_BANK_REGEN_MS,
+      callback: () => {
+        if (this.healBank < HEAL_BANK_MAX) {
+          this.healBank = Math.min(HEAL_BANK_MAX, this.healBank + 1);
+          if (this.chunkManager.isHome(this.playerChunkX, this.playerChunkY)) {
+            this.updateHUD();
+          }
+        }
+      },
+      loop: true,
+    });
+
     // ---- 欢迎提示 ----
     this.showMessage('WASD 移动 | 收集5碎片→开宝箱得钥匙 | E 使用钥匙锚定区块 | M 地图', 4000);
   }
@@ -166,6 +194,8 @@ export class GameScene extends Phaser.Scene {
         this.isMoving = false;
         this.checkFragmentPickup();
         this.checkChestInteraction();
+        this.checkEnemyChestInteraction();
+        this.processTurn();
         this.checkExit();
       } else {
         const speed = PLAYER_MOVE_SPEED * TILE_SIZE * (delta / 1000);
@@ -198,6 +228,16 @@ export class GameScene extends Phaser.Scene {
     const tile = this.currentChunk!.grid[ny][nx];
     if (tile === TileType.Wall) return;
 
+    // 目标格有存活敌人 → 近战攻击（不位移）
+    const enemyHere = this.getEnemyAt(nx, ny);
+    if (enemyHere) {
+      this.moveCooldown = GameScene.MOVE_STEP_MS;
+      this.dealDamageToEnemy(enemyHere, 1);
+      this.showFloatingText('⚔', nx * TILE_SIZE + TILE_SIZE / 2, (ny - 1) * TILE_SIZE);
+      this.processTurn();
+      return;
+    }
+
     this.isMoving = true;
     this.moveTarget = { x: nx, y: ny };
     this.moveCooldown = GameScene.MOVE_STEP_MS;
@@ -216,7 +256,26 @@ export class GameScene extends Phaser.Scene {
     this.renderChunk(this.currentChunk);
     this.renderFragments(this.currentChunk);
     this.renderChest(this.currentChunk);
+    this.renderEnemies(this.currentChunk);
+    this.tryHomeHeal();
     this.updateHUD();
+  }
+
+  private tryHomeHeal(): void {
+    if (!this.chunkManager.isHome(this.playerChunkX, this.playerChunkY)) return;
+    const missing = PLAYER_MAX_HP - this.playerHp;
+    if (missing <= 0) {
+      this.showMessage('🏠 家园——生命已满', 1500);
+      return;
+    }
+    if (this.healBank <= 0) {
+      this.showMessage('🏠 家园——回血储量已耗尽，请等待恢复（每2分钟 +1）', 2500);
+      return;
+    }
+    const actual = Math.min(missing, this.healBank);
+    this.playerHp  += actual;
+    this.healBank  -= actual;
+    this.showMessage(`🏠 家园——回血 +${actual}，生命恢复至 ${this.playerHp}/${PLAYER_MAX_HP}\n回血储量: ${this.healBank}/${HEAL_BANK_MAX}`, 2000);
   }
 
   private clearRendered(): void {
@@ -227,6 +286,15 @@ export class GameScene extends Phaser.Scene {
       this.chestSprite.destroy();
       this.chestSprite = null;
     }
+    // 清除敌人层
+    for (const sprite of this.enemySprites.values()) {
+      this.tweens.killTweensOf(sprite);
+      sprite.destroy();
+    }
+    this.enemySprites.clear();
+    for (const bar of this.enemyHpBars.values()) bar.destroy();
+    this.enemyHpBars.clear();
+    this.enemyLayer.removeAll(false); // 子元素已单独销毁，只清引用
   }
 
   private renderChunk(chunk: ChunkData): void {
@@ -294,13 +362,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   private renderChest(chunk: ChunkData): void {
+    // 销毁旷有的
+    if (this.chestSprite) {
+      this.tweens.killTweensOf(this.chestSprite);
+      this.chestSprite.destroy();
+      this.chestSprite = null;
+    }
     if (chunk.state === 'anchored') return;
     if (this.chunkManager.isHome(chunk.cx, chunk.cy)) return;
-    if (chunk.chunkType !== ChunkType.Wild) return;
+
+    const isWild  = chunk.chunkType === ChunkType.Wild;
+    const isEnemy = chunk.chunkType === ChunkType.Enemy;
+    if (!isWild && !isEnemy) return;
+    // 敌营区块必须先清场才出现宝箱
+    if (isEnemy && !chunk.chestUnlocked) return;
 
     const px = MID * TILE_SIZE + TILE_SIZE / 2;
     const py = MID * TILE_SIZE + TILE_SIZE / 2;
-
     let texKey = 'chest_locked';
     if (chunk.chestOpened) texKey = 'chest_opened';
     else if (chunk.chestUnlocked) texKey = 'chest_unlocked';
@@ -308,7 +386,6 @@ export class GameScene extends Phaser.Scene {
     this.chestSprite = this.add.sprite(px, py, texKey).setDepth(5);
     this.fragmentLayer.add(this.chestSprite);
 
-    // 解锁后的脉冲动画
     if (chunk.chestUnlocked && !chunk.chestOpened) {
       this.tweens.add({
         targets: this.chestSprite,
@@ -443,6 +520,341 @@ export class GameScene extends Phaser.Scene {
   }
 
   /* ================================================================
+   * ENEMY COMBAT
+   * ================================================================ */
+
+  // ---- Helper: 取目标格上存活的敌人 ----
+  private getEnemyAt(x: number, y: number, excludeId?: string): EnemyData | undefined {
+    return this.currentChunk?.enemies.find(
+      e => e.hp > 0 && e.x === x && e.y === y && e.id !== excludeId,
+    );
+  }
+
+  // ---- BFS：返回到目标的最短路径第一步 + 距离；不可达返回 null ----
+  private bfs(
+    grid: number[][], sx: number, sy: number, tx: number, ty: number,
+  ): { dist: number; nx: number; ny: number } | null {
+    if (sx === tx && sy === ty) return { dist: 0, nx: sx, ny: sy };
+    const visited = new Map<string, string | null>();
+    const q: [number, number, number][] = [[sx, sy, 0]];
+    visited.set(`${sx},${sy}`, null);
+    while (q.length > 0) {
+      const [x, y, d] = q.shift()!;
+      for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]] as [number, number][]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || nx >= CHUNK_TILES || ny < 0 || ny >= CHUNK_TILES) continue;
+        if (grid[ny][nx] === TileType.Wall) continue;
+        const k = `${nx},${ny}`;
+        if (visited.has(k)) continue;
+        visited.set(k, `${x},${y}`);
+        if (nx === tx && ny === ty) {
+          // 回溯找第一步
+          let cur = k;
+          while (true) {
+            const par = visited.get(cur)!;
+            if (par === `${sx},${sy}`) {
+              const [fx, fy] = cur.split(',').map(Number);
+              return { dist: d + 1, nx: fx, ny: fy };
+            }
+            cur = par;
+          }
+        }
+        q.push([nx, ny, d + 1]);
+      }
+    }
+    return null;
+  }
+
+  // ---- 渲染敌人 ----
+  private renderEnemies(chunk: ChunkData): void {
+    if (chunk.chunkType !== ChunkType.Enemy || chunk.state === 'anchored') return;
+    for (const e of chunk.enemies) {
+      if (e.hp > 0) this.spawnEnemySprite(e);
+    }
+  }
+
+  private spawnEnemySprite(e: EnemyData): void {
+    const px = e.x * TILE_SIZE + TILE_SIZE / 2;
+    const py = e.y * TILE_SIZE + TILE_SIZE / 2;
+    const sprite = this.add.sprite(px, py, e.kind).setDepth(8);
+    this.enemyLayer.add(sprite);
+    this.enemySprites.set(e.id, sprite);
+    const bar = this.add.graphics();
+    this.enemyLayer.add(bar);
+    this.enemyHpBars.set(e.id, bar);
+    this.drawHpBar(e, bar);
+  }
+
+  private drawHpBar(e: EnemyData, bar: Phaser.GameObjects.Graphics): void {
+    bar.clear();
+    const px = e.x * TILE_SIZE + 2;
+    const py = e.y * TILE_SIZE - 5;
+    bar.fillStyle(0x333333, 1);
+    bar.fillRect(px, py, TILE_SIZE - 4, 3);
+    bar.fillStyle(0xff3333, 1);
+    bar.fillRect(px, py, Math.floor((TILE_SIZE - 4) * e.hp / e.maxHp), 3);
+  }
+
+  private syncEnemySprites(chunk: ChunkData): void {
+    for (const e of chunk.enemies) {
+      if (e.hp <= 0) continue;
+      const sprite = this.enemySprites.get(e.id);
+      const bar    = this.enemyHpBars.get(e.id);
+      if (!sprite) continue;
+      const px = e.x * TILE_SIZE + TILE_SIZE / 2;
+      const py = e.y * TILE_SIZE + TILE_SIZE / 2;
+      this.tweens.add({ targets: sprite, x: px, y: py, duration: 80, ease: 'Linear' });
+      if (bar) this.drawHpBar(e, bar);
+    }
+  }
+
+  // ---- 伤害 ----
+  private dealDamageToEnemy(e: EnemyData, amount: number): void {
+    e.hp = Math.max(0, e.hp - amount);
+    const sprite = this.enemySprites.get(e.id);
+    const bar    = this.enemyHpBars.get(e.id);
+    if (sprite) {
+      sprite.setTint(0xffffff);
+      this.time.delayedCall(100, () => { if (sprite.active) sprite.clearTint(); });
+    }
+    if (bar && e.hp > 0) this.drawHpBar(e, bar);
+    if (e.hp <= 0) {
+      // 死亡动画
+      if (sprite) {
+        this.enemyLayer.remove(sprite, false);
+        this.tweens.killTweensOf(sprite);
+        this.tweens.add({
+          targets: sprite, scaleX: 0, scaleY: 0, alpha: 0, duration: 280,
+          onComplete: () => { if (sprite.active) sprite.destroy(); },
+        });
+        this.enemySprites.delete(e.id);
+      }
+      if (bar) {
+        this.enemyLayer.remove(bar, false);
+        bar.destroy();
+        this.enemyHpBars.delete(e.id);
+      }
+      this.showFloatingText('💀', e.x * TILE_SIZE + TILE_SIZE / 2, (e.y - 1) * TILE_SIZE);
+      this.checkAllEnemiesCleared();
+    }
+  }
+
+  private damagePlayer(amount: number): void {
+    if (this.playerInvincible) return;
+    this.playerHp = Math.max(0, this.playerHp - amount);
+    this.cameras.main.flash(180, 220, 20, 20);
+    this.playerInvincible = true;
+    this.time.delayedCall(600, () => { this.playerInvincible = false; });
+    this.updateHUD();
+    if (this.playerHp <= 0) this.onPlayerDeath();
+  }
+
+  private onPlayerDeath(): void {
+    this.showMessage('💀 你倒下了...\n传送回家园', 2000);
+    this.moveDir.x = 0; this.moveDir.y = 0;
+    this.time.delayedCall(1600, () => {
+      this.playerHp = PLAYER_MAX_HP;
+      this.playerInvincible = false;
+      this.playerTileX = MID;
+      this.playerTileY = MID;
+      this.loadChunk(0, 0);
+      this.syncPlayerSprite();
+      this.cameras.main.fadeIn(500);
+      this.updateHUD();
+    });
+  }
+
+  private checkAllEnemiesCleared(): void {
+    const chunk = this.currentChunk;
+    if (!chunk || chunk.chunkType !== ChunkType.Enemy) return;
+    if (chunk.chestUnlocked) return;
+    if (!chunk.enemies.every(e => e.hp <= 0)) return;
+    chunk.chestUnlocked = true;
+    this.cameras.main.flash(400, 30, 200, 50);
+    this.showMessage('⚔️ 所有敌人已击败！中心区宝箱已解锁！', 3000);
+    this.renderChest(chunk);
+    this.updateHUD();
+  }
+
+  // ---- 子弹视觉 ----
+  private firePlayerBullet(sx: number, sy: number, tx: number, ty: number): void {
+    const startX = OFFSET_X + sx * TILE_SIZE + TILE_SIZE / 2;
+    const startY = OFFSET_Y + sy * TILE_SIZE + TILE_SIZE / 2;
+    const endX   = OFFSET_X + tx * TILE_SIZE + TILE_SIZE / 2;
+    const endY   = OFFSET_Y + ty * TILE_SIZE + TILE_SIZE / 2;
+    const bullet = this.add.sprite(startX, startY, 'bullet_p').setDepth(200);
+    const dist   = Math.abs(tx - sx) + Math.abs(ty - sy);
+    this.tweens.add({ targets: bullet, x: endX, y: endY, duration: dist * 35,
+      onComplete: () => bullet.destroy() });
+  }
+
+  private fireEnemyBullet(sx: number, sy: number, tx: number, ty: number, pierce: boolean): void {
+    const startX = OFFSET_X + sx * TILE_SIZE + TILE_SIZE / 2;
+    const startY = OFFSET_Y + sy * TILE_SIZE + TILE_SIZE / 2;
+    const endX   = OFFSET_X + tx * TILE_SIZE + TILE_SIZE / 2;
+    const endY   = OFFSET_Y + ty * TILE_SIZE + TILE_SIZE / 2;
+    const key    = pierce ? 'bullet_e_pierce' : 'bullet_e';
+    const bullet = this.add.sprite(startX, startY, key).setDepth(200);
+    const dist   = Math.max(1, Math.abs(tx - sx) + Math.abs(ty - sy));
+    this.tweens.add({ targets: bullet, x: endX, y: endY, duration: dist * 50,
+      onComplete: () => bullet.destroy() });
+  }
+
+  // ---- 玩家自动开火 ----
+  private playerAutoFire(chunk: ChunkData): void {
+    const alive = chunk.enemies.filter(e => e.hp > 0);
+    if (alive.length === 0) return;
+
+    const inLOS: EnemyData[] = [];
+    for (const e of alive) {
+      if (e.x === this.playerTileX) {
+        const minY = Math.min(e.y, this.playerTileY);
+        const maxY = Math.max(e.y, this.playerTileY);
+        let clear = true;
+        for (let y = minY + 1; y < maxY; y++) {
+          if (chunk.grid[y][e.x] === TileType.Wall) { clear = false; break; }
+        }
+        if (clear && Math.abs(e.y - this.playerTileY) <= PLAYER_FIRE_RANGE) inLOS.push(e);
+      } else if (e.y === this.playerTileY) {
+        const minX = Math.min(e.x, this.playerTileX);
+        const maxX = Math.max(e.x, this.playerTileX);
+        let clear = true;
+        for (let x = minX + 1; x < maxX; x++) {
+          if (chunk.grid[e.y][x] === TileType.Wall) { clear = false; break; }
+        }
+        if (clear && Math.abs(e.x - this.playerTileX) <= PLAYER_FIRE_RANGE) inLOS.push(e);
+      }
+    }
+    if (inLOS.length === 0) return;
+
+    const target = inLOS.reduce((a, b) =>
+      (Math.abs(a.x - this.playerTileX) + Math.abs(a.y - this.playerTileY)) <=
+      (Math.abs(b.x - this.playerTileX) + Math.abs(b.y - this.playerTileY)) ? a : b,
+    );
+    this.firePlayerBullet(this.playerTileX, this.playerTileY, target.x, target.y);
+    this.dealDamageToEnemy(target, 1);
+  }
+
+  // ---- 回合处理 ----
+  private processTurn(): void {
+    const chunk = this.currentChunk;
+    if (!chunk || chunk.chunkType !== ChunkType.Enemy || chunk.state === 'anchored') return;
+    if (chunk.enemies.length === 0) return;
+
+    // 1. 玩家先自动开火
+    this.playerAutoFire(chunk);
+
+    // 2. 更新巡逻者广播状态（开火后立即更新，保证被击杀的巡逻者不广播）
+    for (const e of chunk.enemies) {
+      if (e.kind !== 'scout' || e.hp <= 0) continue;
+      const dx = e.x - this.playerTileX, dy = e.y - this.playerTileY;
+      e.broadcasting = (dx * dx + dy * dy) <= SCOUT_DETECT_RADIUS * SCOUT_DETECT_RADIUS;
+    }
+    const anyBroadcast = chunk.enemies.some(e => e.kind === 'scout' && e.hp > 0 && e.broadcasting);
+
+    // 3. 各敌人 AI
+    for (const e of chunk.enemies) {
+      if (e.hp <= 0) continue;
+      if (e.kind === 'scout')  this.processScout(e, chunk.grid);
+      if (e.kind === 'chaser') this.processChaser(e, chunk.grid);
+      if (e.kind === 'sniper') this.processSniper(e, chunk.grid, anyBroadcast);
+    }
+
+    // 4. 同步动画
+    this.syncEnemySprites(chunk);
+  }
+
+  private processScout(e: EnemyData, grid: number[][]): void {
+    // 随机移动（不寻路，不追玩家）
+    const dirs: [number, number][] = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+    for (let i = dirs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+    }
+    for (const [dx, dy] of dirs) {
+      const nx = e.x + dx, ny = e.y + dy;
+      if (nx < 0 || nx >= CHUNK_TILES || ny < 0 || ny >= CHUNK_TILES) continue;
+      if (grid[ny][nx] === TileType.Wall || grid[ny][nx] === TileType.Exit) continue;
+      if (nx === this.playerTileX && ny === this.playerTileY) continue;
+      if (this.getEnemyAt(nx, ny, e.id)) continue;
+      e.x = nx; e.y = ny;
+      break;
+    }
+  }
+
+  private processChaser(e: EnemyData, grid: number[][]): void {
+    if (!e.activated) {
+      const r = this.bfs(grid, e.x, e.y, this.playerTileX, this.playerTileY);
+      if (r && r.dist <= CHASER_DETECT_STEPS) e.activated = true;
+      if (!e.activated) return;
+    }
+    const doStep = (): void => {
+      const r = this.bfs(grid, e.x, e.y, this.playerTileX, this.playerTileY);
+      if (!r) return;
+      if (r.nx === this.playerTileX && r.ny === this.playerTileY) {
+        this.damagePlayer(1);
+      } else if (!this.getEnemyAt(r.nx, r.ny, e.id)) {
+        e.x = r.nx; e.y = r.ny;
+      }
+    };
+    doStep();
+    e.stepCount++;
+    if (e.stepCount % 3 === 0) doStep(); // 每3步额外多走一步（冲刺）
+  }
+
+  private processSniper(e: EnemyData, grid: number[][], anyBroadcast: boolean): void {
+    // 广播时无视激活条件直接计时
+    if (!anyBroadcast && !e.activated) {
+      const r = this.bfs(grid, e.x, e.y, this.playerTileX, this.playerTileY);
+      if (r && r.dist <= SNIPER_DETECT_STEPS) e.activated = true;
+      if (!e.activated) return;
+    }
+    e.attackTimer--;
+    if (e.attackTimer > 0) return;
+    e.attackTimer = SNIPER_FIRE_RATE;
+
+    if (anyBroadcast) {
+      // 穿墙攻击
+      this.fireEnemyBullet(e.x, e.y, this.playerTileX, this.playerTileY, true);
+      this.damagePlayer(1);
+      return;
+    }
+    // 正常：只攻击在预计算 LOS 内的玩家
+    if (e.visibleCells.includes(`${this.playerTileX},${this.playerTileY}`)) {
+      this.fireEnemyBullet(e.x, e.y, this.playerTileX, this.playerTileY, false);
+      this.damagePlayer(1);
+    }
+  }
+
+  // ---- 敌营宝箱交互（与 Wild 逻辑独立） ----
+  private checkEnemyChestInteraction(): void {
+    const chunk = this.currentChunk;
+    if (!chunk || chunk.state === 'anchored') return;
+    if (this.chunkManager.isHome(chunk.cx, chunk.cy)) return;
+    if (chunk.chunkType !== ChunkType.Enemy) return;
+    if (!chunk.chestUnlocked || chunk.chestOpened) return;
+    if (this.playerTileX !== MID || this.playerTileY !== MID) return;
+
+    chunk.chestOpened = true;
+    this.chunkManager.liberateChunk(chunk.cx, chunk.cy);
+    const gridSnapshot = chunk.grid.map(row => [...row]);
+    const label = `从 (${chunk.cx}, ${chunk.cy}) 获得`;
+    this.playerKeys.push({ grid: gridSnapshot, label });
+
+    if (this.chestSprite) {
+      this.tweens.killTweensOf(this.chestSprite);
+      this.chestSprite.setTexture('chest_opened');
+      this.chestSprite.setScale(1);
+    }
+    this.cameras.main.flash(500, 50, 200, 50);
+    this.showMessage(
+      `🔑 获得地图钥匙「${label}」\n在任意未锚定区块按 E 即可使用`,
+      4000,
+    );
+    this.updateHUD();
+  }
+
+  /* ================================================================
    * ANCHOR / MAP
    * ================================================================ */
 
@@ -507,7 +919,11 @@ export class GameScene extends Phaser.Scene {
     s += `状态: ${typeLabel}\n`;
     if (!isHome && chunk.state !== 'anchored' && chunk.chunkType === ChunkType.Wild) {
       s += `碎片: ${collected}/${total}  宝箱: ${chunk.chestOpened ? '已开启' : chunk.chestUnlocked ? '已解锁' : '锁定中'}\n`;
+    } else if (!isHome && chunk.state !== 'anchored' && chunk.chunkType === ChunkType.Enemy) {
+      const alive = chunk.enemies.filter(e => e.hp > 0).length;
+      s += `敌人: ${alive}/${chunk.enemies.length}  宝箱: ${chunk.chestOpened ? '已开启' : chunk.chestUnlocked ? '已解锁' : '待清场'}\n`;
     }
+    s += `生命: ${this.playerHp}/${PLAYER_MAX_HP}\n`;
     s += `钥匙: ${this.playerKeys.length}  已锚定: ${this.chunkManager.getAnchoredCount()}`;
     this.showMessage(s, 3000);
   }
@@ -575,7 +991,8 @@ export class GameScene extends Phaser.Scene {
     else if (chunk.chunkType === ChunkType.Enemy) this.hudStatus.setText('⚔️ 敌营');
     else this.hudStatus.setText('🌿 荒野');
 
-    this.hudKeys.setText(`🔑 ${this.playerKeys.length}  |  🔒 ${this.chunkManager.getAnchoredCount()}`);
+    const healBankStr = isHome ? `  💊 ${this.healBank}/${HEAL_BANK_MAX}` : '';
+    this.hudKeys.setText(`🔑 ${this.playerKeys.length}  |  🔒 ${this.chunkManager.getAnchoredCount()}  |  ❤️ ${this.playerHp}/${PLAYER_MAX_HP}${healBankStr}`);
 
     if (!isHome && chunk.state !== 'anchored' && chunk.chunkType === ChunkType.Wild) {
       const c = chunk.fragments.filter(f => f.collected).length;
@@ -584,6 +1001,11 @@ export class GameScene extends Phaser.Scene {
       if (chunk.chestOpened) chestLabel = '  📦 已开启';
       else if (chunk.chestUnlocked) chestLabel = '  📦✨ 已解锁!';
       this.hudFragments.setText(`✦ ${c}/${t}${chestLabel}`);
+    } else if (!isHome && chunk.state !== 'anchored' && chunk.chunkType === ChunkType.Enemy) {
+      const alive = chunk.enemies.filter(e => e.hp > 0).length;
+      const total = chunk.enemies.length;
+      const chestLabel = chunk.chestOpened ? ' 📦✅' : chunk.chestUnlocked ? ' 📦✨' : '';
+      this.hudFragments.setText(total > 0 ? `⚔️ ${alive}/${total}${chestLabel}` : '');
     } else {
       this.hudFragments.setText('');
     }
@@ -660,9 +1082,11 @@ export class GameScene extends Phaser.Scene {
     SaveManager.save({
       chunkX: this.playerChunkX,
       chunkY: this.playerChunkY,
-      tileX: this.playerTileX,
-      tileY: this.playerTileY,
-      keys: this.playerKeys,
+      tileX:  this.playerTileX,
+      tileY:  this.playerTileY,
+      keys:   this.playerKeys,
+      hp:     this.playerHp,
+      healBank: this.healBank,
       timestamp: Date.now(),
     });
   }
