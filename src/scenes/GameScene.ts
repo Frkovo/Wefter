@@ -289,7 +289,8 @@ export class GameScene extends Phaser.Scene {
 
   private tryHomeHeal(): void {
     if (!this.chunkManager.isHome(this.playerChunkX, this.playerChunkY)) return;
-    const missing = PLAYER_MAX_HP - this.playerHp;
+    const maxHp = PLAYER_MAX_HP + this.playerMaxHpBonus;
+    const missing = maxHp - this.playerHp;
     if (missing <= 0) {
       this.showMessage('🏠 家园——生命已满', 1500);
       return;
@@ -301,7 +302,7 @@ export class GameScene extends Phaser.Scene {
     const actual = Math.min(missing, this.healBank);
     this.playerHp  += actual;
     this.healBank  -= actual;
-    this.showMessage(`🏠 家园——回血 +${actual}，生命恢复至 ${this.playerHp}/${PLAYER_MAX_HP}\n回血储量: ${this.healBank}/${HEAL_BANK_MAX}`, 2000);
+    this.showMessage(`🏠 家园——回血 +${actual}，生命恢复至 ${this.playerHp}/${maxHp}\n回血储量: ${this.healBank}/${HEAL_BANK_MAX}`, 2000);
   }
 
   private clearRendered(): void {
@@ -724,7 +725,7 @@ export class GameScene extends Phaser.Scene {
     this.shieldActive = false;
     this.smokeStepsLeft = 0;
     this.time.delayedCall(1600, () => {
-      this.playerHp = PLAYER_MAX_HP;
+      this.playerHp = PLAYER_MAX_HP + this.playerMaxHpBonus;
       this.playerInvincible = false;
       this.playerTileX = MID;
       this.playerTileY = MID;
@@ -1220,7 +1221,7 @@ export class GameScene extends Phaser.Scene {
         break;
       case 'max_hp_up':
         this.playerMaxHpBonus += 5;
-        this.playerHp = Math.min(PLAYER_MAX_HP + this.playerMaxHpBonus, this.playerHp + 5);
+        this.playerHp += 5;  // 立即恢复等量血量
         this.showMessage(`💖 最大血量 +5（当前上限 ${PLAYER_MAX_HP + this.playerMaxHpBonus}）`, 2000);
         break;
       case 'scout_jammer':
@@ -1388,7 +1389,7 @@ export class GameScene extends Phaser.Scene {
 
     const healBankStr = isHome ? `  💊 ${this.healBank}/${HEAL_BANK_MAX}` : '';
     const anchorStr   = isHome ? `  |  🔒 ${this.chunkManager.getAnchoredCount()}` : '';
-    this.hudKeys.setText(`🔑 ${this.playerKeys.length}${anchorStr}  |  ❤️ ${this.playerHp}/${PLAYER_MAX_HP}${healBankStr}  |  🪙 ${this.playerCoins}`);
+    this.hudKeys.setText(`🔑 ${this.playerKeys.length}${anchorStr}  |  ❤️ ${this.playerHp}/${PLAYER_MAX_HP + this.playerMaxHpBonus}${healBankStr}  |  🪙 ${this.playerCoins}`);
 
     if (!isHome && chunk.state !== 'anchored' && chunk.chunkType === ChunkType.Wild) {
       const c = chunk.fragments.filter(f => f.collected).length;
