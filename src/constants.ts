@@ -11,6 +11,12 @@ export const PLAYER_MOVE_SPEED = 10; // tiles/sec
 export const PLAYER_MAX_HP = 20;
 export const HEAL_BANK_MAX = 200;
 export const HEAL_BANK_REGEN_MS = 120_000; // 2分钟 +1 储量
+// === AZCoin 金币奖励 ===
+export const COIN_FRAGMENT    = 1;   // 每个碎片
+export const COIN_WILD_CHEST  = 5;   // 荒野宝箱
+export const COIN_ENEMY_KILL  = 1;   // 击杀敌人
+export const COIN_ENEMY_CHEST = 10;  // 敌营宝箱
+
 export const SCOUT_DETECT_RADIUS = 5;   // 欧氏距离，穿墙
 export const CHASER_DETECT_STEPS = 10;  // BFS 最短路径步数
 export const SNIPER_DETECT_STEPS = 15;  // BFS 最短路径步数

@@ -6,6 +6,7 @@ import {
   PLAYER_MAX_HP, HEAL_BANK_MAX, HEAL_BANK_REGEN_MS,
   SCOUT_DETECT_RADIUS, CHASER_DETECT_STEPS,
   SNIPER_DETECT_STEPS, PLAYER_FIRE_RANGE, SNIPER_FIRE_RATE,
+  COIN_FRAGMENT, COIN_WILD_CHEST, COIN_ENEMY_KILL, COIN_ENEMY_CHEST,
 } from '../constants';
 import type { ChunkData, MapKey, SaveData, EnemyData } from '../types';
 import { SeedProvider } from '../systems/SeedProvider';
@@ -41,6 +42,7 @@ export class GameScene extends Phaser.Scene {
   // Player combat
   private playerHp = PLAYER_MAX_HP;
   private healBank = HEAL_BANK_MAX;
+  private playerCoins = 0;
   private playerInvincible = false;
 
   // Movement
@@ -94,6 +96,7 @@ export class GameScene extends Phaser.Scene {
       this.playerKeys   = save.keys || [];
       this.playerHp     = save.hp   ?? PLAYER_MAX_HP;
       this.healBank     = save.healBank ?? HEAL_BANK_MAX;
+      this.playerCoins  = save.coins ?? 0;
     }
 
     // ---- 渲染层（gameLayer 用 offset 保证居中）----
@@ -419,6 +422,7 @@ export class GameScene extends Phaser.Scene {
       if (frag.x !== this.playerTileX || frag.y !== this.playerTileY) continue;
 
       frag.collected = true;
+      this.gainCoins(COIN_FRAGMENT);
 
       // 动画
       const sprite = this.fragmentSprites.get(frag.id);
@@ -474,6 +478,7 @@ export class GameScene extends Phaser.Scene {
 
     // 打开宝箱
     chunk.chestOpened = true;
+    this.gainCoins(COIN_WILD_CHEST);
     this.chunkManager.liberateChunk(chunk.cx, chunk.cy);
 
     // 保存当前地图快照为钥匙（快照只含迷宫结构，不含任何关卡内容）
@@ -836,6 +841,7 @@ export class GameScene extends Phaser.Scene {
     if (this.playerTileX !== MID || this.playerTileY !== MID) return;
 
     chunk.chestOpened = true;
+    this.gainCoins(COIN_ENEMY_CHEST);
     this.chunkManager.liberateChunk(chunk.cx, chunk.cy);
     const gridSnapshot = chunk.grid.map(row => [...row]);
     const label = `从 (${chunk.cx}, ${chunk.cy}) 获得`;
@@ -993,7 +999,7 @@ export class GameScene extends Phaser.Scene {
 
     const healBankStr = isHome ? `  💊 ${this.healBank}/${HEAL_BANK_MAX}` : '';
     const anchorStr   = isHome ? `  |  🔒 ${this.chunkManager.getAnchoredCount()}` : '';
-    this.hudKeys.setText(`🔑 ${this.playerKeys.length}${anchorStr}  |  ❤️ ${this.playerHp}/${PLAYER_MAX_HP}${healBankStr}`);
+    this.hudKeys.setText(`🔑 ${this.playerKeys.length}${anchorStr}  |  ❤️ ${this.playerHp}/${PLAYER_MAX_HP}${healBankStr}  |  🪙 ${this.playerCoins}`);
 
     if (!isHome && chunk.state !== 'anchored' && chunk.chunkType === ChunkType.Wild) {
       const c = chunk.fragments.filter(f => f.collected).length;
@@ -1057,6 +1063,15 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private gainCoins(amount: number): void {
+    this.playerCoins += amount;
+    // 浮动文字显示在玩家上方
+    const px = this.playerTileX * TILE_SIZE + TILE_SIZE / 2;
+    const py = (this.playerTileY - 1) * TILE_SIZE;
+    this.showFloatingText(`+${amount}🪙`, px, py);
+    this.updateHUD();
+  }
+
   private showFloatingText(text: string, x: number, y: number): void {
     // 需要加上 gameLayer 偏移
     const ft = this.add.text(OFFSET_X + x, OFFSET_Y + y, text, {
@@ -1088,6 +1103,7 @@ export class GameScene extends Phaser.Scene {
       keys:   this.playerKeys,
       hp:     this.playerHp,
       healBank: this.healBank,
+      coins:  this.playerCoins,
       timestamp: Date.now(),
     });
   }

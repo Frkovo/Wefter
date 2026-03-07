@@ -51,6 +51,7 @@ export interface SaveData {
   keys: MapKey[];
   hp: number;
   healBank: number;
+  coins: number;
   timestamp: number;
 }
 
