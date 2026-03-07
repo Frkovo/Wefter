@@ -8,6 +8,9 @@ export default defineConfig({
       phaser: path.resolve('./src/phaser-shim.ts'),
     },
   },
+  server: {
+    allowedHosts: ['test.aozai.top', 'aozai.top'],
+  },
   build: {
     outDir: 'dist',
     target: 'es2020',
