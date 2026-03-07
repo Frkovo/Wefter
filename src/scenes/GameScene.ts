@@ -9,6 +9,7 @@ import {
   COIN_FRAGMENT, COIN_WILD_CHEST, COIN_ENEMY_KILL, COIN_ENEMY_CHEST,
   ITEM_DEFS, ITEM_POOL, SHOP_REFRESH_MS, SHOP_OFFER_COUNT,
 } from '../constants';
+import type { ItemId } from '../constants';
 import type { ChunkData, MapKey, SaveData, EnemyData, InventoryItem } from '../types';
 import { SeedProvider } from '../systems/SeedProvider';
 import { ChunkManager } from '../systems/ChunkManager';
@@ -115,6 +116,19 @@ export class GameScene extends Phaser.Scene {
       this.playerDamageBonus    = save.playerDamageBonus ?? 0;
       this.playerMaxHpBonus     = save.playerMaxHpBonus ?? 0;
       this.scoutRadiusReduction = save.scoutRadiusReduction ?? 0;
+
+      // 迁移：旧存档可能把永久升级误放进背包，读档时消化掉
+      const permanents: ItemId[] = ['firepower_up', 'max_hp_up', 'scout_jammer'];
+      this.inventory = this.inventory.filter(item => {
+        if (!permanents.includes(item.id)) return true;
+        // 将每个道具的效果叠加
+        for (let i = 0; i < item.qty; i++) {
+          if (item.id === 'firepower_up')  this.playerDamageBonus++;
+          if (item.id === 'max_hp_up')     { this.playerMaxHpBonus += 5; this.playerHp += 5; }
+          if (item.id === 'scout_jammer')  this.scoutRadiusReduction++;
+        }
+        return false; // 从背包移除
+      });
     }
 
     // ---- 渲染层（gameLayer 用 offset 保证居中）----
@@ -1075,12 +1089,20 @@ export class GameScene extends Phaser.Scene {
     if (this.playerCoins < def.price) return;
     this.playerCoins -= def.price;
 
-    // 加入背包
-    const existing = this.inventory.find(i => i.id === id);
-    if (existing && def.stackable) {
-      existing.qty++;
-    } else if (!existing) {
-      this.inventory.push({ id, qty: 1 });
+    // 永久升级：立即生效，不进背包
+    const permanentUpgrades: ItemId[] = ['firepower_up', 'max_hp_up', 'scout_jammer'];
+    if (permanentUpgrades.includes(id)) {
+      if (id === 'firepower_up')   this.playerDamageBonus++;
+      if (id === 'max_hp_up')     { this.playerMaxHpBonus += 5; this.playerHp += 5; }
+      if (id === 'scout_jammer')  this.scoutRadiusReduction++;
+    } else {
+      // 消耗品/增益符：加入背包
+      const existing = this.inventory.find(i => i.id === id);
+      if (existing && def.stackable) {
+        existing.qty++;
+      } else if (!existing) {
+        this.inventory.push({ id, qty: 1 });
+      }
     }
 
     // 标记商店已购买
@@ -1169,9 +1191,8 @@ export class GameScene extends Phaser.Scene {
           fontSize: '11px', fontFamily: '"Microsoft YaHei"', color: '#667788',
         }).setOrigin(0.5, 0.5));
 
-        // 使用按钮（仅消耗/效果类可用，永久升级自动在购买时应用）
-        const usable = ['first_aid', 'ration', 'smoke_bomb', 'speed_rune', 'shield',
-                        'firepower_up', 'max_hp_up', 'scout_jammer'];
+        // 消耗品/增益符才能手动使用（永久升级在购买时已自动生效）
+        const usable = ['first_aid', 'ration', 'smoke_bomb', 'speed_rune', 'shield'];
         if (usable.includes(item.id)) {
           const useBtn = this.add.text(W - padding - 8, by + (itemH - 4) / 2, '[使用]', {
             fontSize: '13px', fontFamily: '"Microsoft YaHei"', color: '#44cc88',
