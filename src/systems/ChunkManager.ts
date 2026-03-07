@@ -83,9 +83,9 @@ export class ChunkManager {
           enemies: [],
           chestUnlocked: true,
           chestOpened: true,
-          shopPurchased: false,
+          shopPurchased: this.anchoredData[k].shopPurchased ?? false,
           shopOffers: [],   // 锚定商店由 GameScene.tryOpenShop 按时间刷新
-          shopRefreshAt: 0,
+          shopRefreshAt: this.anchoredData[k].shopRefreshAt ?? 0,
           state: 'anchored',
           seed: 0,
         });
@@ -200,5 +200,15 @@ export class ChunkManager {
       offers.push(pool.splice(idx, 1)[0]);
     }
     return offers;
+  }
+
+  /** 持久化锚定商店的冷却状态（防刷新绕过） */
+  saveShopState(cx: number, cy: number, shopPurchased: boolean, shopRefreshAt: number): void {
+    const k = this.key(cx, cy);
+    if (this.anchoredData[k]) {
+      this.anchoredData[k].shopPurchased = shopPurchased;
+      this.anchoredData[k].shopRefreshAt = shopRefreshAt;
+      SaveManager.saveAnchored(this.anchoredData);
+    }
   }
 }

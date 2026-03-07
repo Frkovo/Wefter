@@ -71,4 +71,6 @@ export interface AnchoredChunkData {
   grid: number[][];
   type: string;
   anchoredAt: number;
+  shopPurchased?: boolean;
+  shopRefreshAt?: number;
 }
