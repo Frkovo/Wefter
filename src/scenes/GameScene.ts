@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import {
   TILE_SIZE, CHUNK_TILES, CHUNK_PX, VIEWPORT_W, VIEWPORT_H,
   OFFSET_X, OFFSET_Y, MID, FRAGMENT_COUNT, PLAYER_MOVE_SPEED,
-  TileType, Colors,
+  TileType, Colors, ChunkType,
 } from '../constants';
 import type { ChunkData, MapKey, SaveData } from '../types';
 import { SeedProvider } from '../systems/SeedProvider';
@@ -35,6 +35,9 @@ export class GameScene extends Phaser.Scene {
   // Movement
   private isMoving = false;
   private moveTarget = { x: 0, y: 0 };
+  private moveDir = { x: 0, y: 0 };   // keydown/keyup 维护的当前方向
+  private moveCooldown = 0;            // 步进冷却时长（ms）
+  private static readonly MOVE_STEP_MS = 60; // 连续移动间隔，与动画时长匹配
 
   // Current chunk
   private currentChunk: ChunkData | null = null;
@@ -103,6 +106,24 @@ export class GameScene extends Phaser.Scene {
     this.keyM = kb.addKey(Phaser.Input.Keyboard.KeyCodes.M);
     this.keyTab = kb.addKey(Phaser.Input.Keyboard.KeyCodes.TAB);
 
+    // keydown/keyup 维护方向状态，完全绕开系统 key-repeat
+    const setDir = (x: number, y: number) => { this.moveDir.x = x; this.moveDir.y = y; this.moveCooldown = 0; };
+    const clrDir = (x: number, y: number) => {
+      if (this.moveDir.x === x && this.moveDir.y === y) { this.moveDir.x = 0; this.moveDir.y = 0; }
+    };
+    kb.on('keydown-W', () => setDir(0, -1));  kb.on('keyup-W', () => clrDir(0, -1));
+    kb.on('keydown-S', () => setDir(0,  1));  kb.on('keyup-S', () => clrDir(0,  1));
+    kb.on('keydown-A', () => setDir(-1, 0));  kb.on('keyup-A', () => clrDir(-1, 0));
+    kb.on('keydown-D', () => setDir( 1, 0));  kb.on('keyup-D', () => clrDir( 1, 0));
+    kb.on('keydown-UP',    () => setDir(0, -1));  kb.on('keyup-UP',    () => clrDir(0, -1));
+    kb.on('keydown-DOWN',  () => setDir(0,  1));  kb.on('keyup-DOWN',  () => clrDir(0,  1));
+    kb.on('keydown-LEFT',  () => setDir(-1, 0));  kb.on('keyup-LEFT',  () => clrDir(-1, 0));
+    kb.on('keydown-RIGHT', () => setDir( 1, 0));  kb.on('keyup-RIGHT', () => clrDir( 1, 0));
+
+    // 切出场景时清除方向状态，防止回来后嫌idental挥不停
+    this.events.on('pause',  () => { this.moveDir.x = 0; this.moveDir.y = 0; });
+    this.events.on('resume', () => { this.moveDir.x = 0; this.moveDir.y = 0; this.moveCooldown = 0; });
+
     // ---- HUD ----
     this.createHUD();
 
@@ -130,6 +151,7 @@ export class GameScene extends Phaser.Scene {
    * ================================================================ */
 
   private handleMovement(delta: number): void {
+    // 动画进行中：推进动画
     if (this.isMoving) {
       const tx = this.moveTarget.x * TILE_SIZE + TILE_SIZE / 2;
       const ty = this.moveTarget.y * TILE_SIZE + TILE_SIZE / 2;
@@ -154,19 +176,20 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // 读取方向输入
-    let mx = 0, my = 0;
-    if (this.cursors.left.isDown || this.wasd.A.isDown) mx = -1;
-    else if (this.cursors.right.isDown || this.wasd.D.isDown) mx = 1;
-    else if (this.cursors.up.isDown || this.wasd.W.isDown) my = -1;
-    else if (this.cursors.down.isDown || this.wasd.S.isDown) my = 1;
+    // 冷却计时正在过期——减少剩余时长
+    if (this.moveCooldown > 0) {
+      this.moveCooldown -= delta;
+    }
 
+    const { x: mx, y: my } = this.moveDir;
     if (mx === 0 && my === 0) {
-      if (Phaser.Input.Keyboard.JustDown(this.keyE)) this.tryAnchor();
-      if (Phaser.Input.Keyboard.JustDown(this.keyM)) this.openMap();
+      if (Phaser.Input.Keyboard.JustDown(this.keyE))   this.tryAnchor();
+      if (Phaser.Input.Keyboard.JustDown(this.keyM))   this.openMap();
       if (Phaser.Input.Keyboard.JustDown(this.keyTab)) this.showStatus();
       return;
     }
+
+    if (this.moveCooldown > 0) return;
 
     const nx = this.playerTileX + mx;
     const ny = this.playerTileY + my;
@@ -177,6 +200,7 @@ export class GameScene extends Phaser.Scene {
 
     this.isMoving = true;
     this.moveTarget = { x: nx, y: ny };
+    this.moveCooldown = GameScene.MOVE_STEP_MS;
   }
 
   /* ================================================================
@@ -216,10 +240,8 @@ export class GameScene extends Phaser.Scene {
         const py = y * TILE_SIZE;
 
         if (tile === TileType.Wall) {
-          const s = this.add.sprite(px, py, 'wall').setOrigin(0);
-          if (isHome) s.setTint(0x1a3a5e);
-          else if (isAnchored) s.setTint(Colors.ANCHORED);
-          this.mapLayer.add(s);
+          const texKey = isAnchored ? 'anchoredWall' : 'wall';
+          this.mapLayer.add(this.add.sprite(px, py, texKey).setOrigin(0));
         } else if (tile === TileType.Exit) {
           this.mapLayer.add(this.add.sprite(px, py, 'exit').setOrigin(0));
           this.mapLayer.add(
@@ -228,23 +250,25 @@ export class GameScene extends Phaser.Scene {
             }).setOrigin(0.5),
           );
         } else {
-          // Floor — 判断是否中心房间
+          // 地板——优先级：家园 > 已锚定 > 中心房间(未锚定) > 普通
           const inCenter = Math.abs(x - MID) <= 1 && Math.abs(y - MID) <= 1;
           let key = 'floor';
-          if (isHome) key = 'homeFloor';
-          else if (inCenter && !isAnchored) key = 'centerFloor';
-          const s = this.add.sprite(px, py, key).setOrigin(0);
-          if (isAnchored && !isHome) s.setTint(0x152535);
-          this.mapLayer.add(s);
+          if (isHome) {
+            const onDiamond = Math.abs(x - MID) + Math.abs(y - MID) <= 4;
+            const onCross = (x === MID || y === MID);
+            key = (onDiamond || onCross) ? 'pathFloor' : 'homeFloor';
+          } else if (isAnchored) key = 'anchoredFloor';
+          else if (inCenter) key = 'centerFloor';
+          this.mapLayer.add(this.add.sprite(px, py, key).setOrigin(0));
         }
       }
     }
 
     // 区块边框
     const border = this.add.graphics();
-    if (isHome) border.lineStyle(2, Colors.HOME, 0.5);
-    else if (isAnchored) border.lineStyle(2, Colors.ANCHORED, 0.5);
-    else border.lineStyle(1, 0x333355, 0.3);
+    if (isHome) border.lineStyle(2, Colors.HOME, 0.7);
+    else if (isAnchored) border.lineStyle(2, Colors.ANCHORED, 0.6);
+    else border.lineStyle(1, 0x1a1a38, 0.4);
     border.strokeRect(0, 0, CHUNK_PX, CHUNK_PX);
     this.mapLayer.add(border);
   }
@@ -272,6 +296,7 @@ export class GameScene extends Phaser.Scene {
   private renderChest(chunk: ChunkData): void {
     if (chunk.state === 'anchored') return;
     if (this.chunkManager.isHome(chunk.cx, chunk.cy)) return;
+    if (chunk.chunkType !== ChunkType.Wild) return;
 
     const px = MID * TILE_SIZE + TILE_SIZE / 2;
     const py = MID * TILE_SIZE + TILE_SIZE / 2;
@@ -310,6 +335,7 @@ export class GameScene extends Phaser.Scene {
   private checkFragmentPickup(): void {
     const chunk = this.currentChunk;
     if (!chunk || chunk.state === 'anchored') return;
+    if (chunk.chunkType !== ChunkType.Wild) return;
 
     for (const frag of chunk.fragments) {
       if (frag.collected) continue;
@@ -365,11 +391,13 @@ export class GameScene extends Phaser.Scene {
     const chunk = this.currentChunk;
     if (!chunk || chunk.state === 'anchored') return;
     if (this.chunkManager.isHome(chunk.cx, chunk.cy)) return;
+    if (chunk.chunkType !== ChunkType.Wild) return;
     if (!chunk.chestUnlocked || chunk.chestOpened) return;
     if (this.playerTileX !== MID || this.playerTileY !== MID) return;
 
     // 打开宝箱
     chunk.chestOpened = true;
+    this.chunkManager.liberateChunk(chunk.cx, chunk.cy);
 
     // 保存当前地图快照为钥匙（快照只含迷宫结构，不含任何关卡内容）
     const gridSnapshot = chunk.grid.map(row => [...row]);
@@ -444,10 +472,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   private openMap(): void {
+    const isCurrentAnchored =
+      this.chunkManager.isHome(this.playerChunkX, this.playerChunkY) ||
+      this.chunkManager.isAnchored(this.playerChunkX, this.playerChunkY);
+
     this.scene.launch('MapScene', {
       chunkManager: this.chunkManager,
       playerChunkX: this.playerChunkX,
       playerChunkY: this.playerChunkY,
+      canTeleport: isCurrentAnchored,
+      onTeleport: (cx: number, cy: number) => {
+        this.playerTileX = MID;
+        this.playerTileY = MID;
+        this.loadChunk(cx, cy);
+        this.syncPlayerSprite();
+        this.showMessage(`传送至 (${cx}, ${cy})`, 1500);
+      },
     });
     this.scene.pause();
   }
@@ -459,8 +499,13 @@ export class GameScene extends Phaser.Scene {
     const isHome = this.chunkManager.isHome(chunk.cx, chunk.cy);
 
     let s = `📍 区块 (${this.playerChunkX}, ${this.playerChunkY})\n`;
-    s += `状态: ${isHome ? '🏠 家园' : chunk.state === 'anchored' ? '🔒 已锚定' : '❓ 未解放'}\n`;
-    if (!isHome && chunk.state !== 'anchored') {
+    const typeLabel = isHome ? '🏠 家园'
+      : chunk.state === 'anchored' ? '🔒 已锚定'
+      : chunk.chunkType === ChunkType.Shop ? '🏪 商店'
+      : chunk.chunkType === ChunkType.Enemy ? '⚔️ 敌营'
+      : '🌿 荒野';
+    s += `状态: ${typeLabel}\n`;
+    if (!isHome && chunk.state !== 'anchored' && chunk.chunkType === ChunkType.Wild) {
       s += `碎片: ${collected}/${total}  宝箱: ${chunk.chestOpened ? '已开启' : chunk.chestUnlocked ? '已解锁' : '锁定中'}\n`;
     }
     s += `钥匙: ${this.playerKeys.length}  已锚定: ${this.chunkManager.getAnchoredCount()}`;
@@ -526,11 +571,13 @@ export class GameScene extends Phaser.Scene {
 
     if (isHome) this.hudStatus.setText('🏠 家园');
     else if (chunk.state === 'anchored') this.hudStatus.setText('🔒 已锚定');
-    else this.hudStatus.setText('❓ 未解放');
+    else if (chunk.chunkType === ChunkType.Shop) this.hudStatus.setText('🏪 商店');
+    else if (chunk.chunkType === ChunkType.Enemy) this.hudStatus.setText('⚔️ 敌营');
+    else this.hudStatus.setText('🌿 荒野');
 
     this.hudKeys.setText(`🔑 ${this.playerKeys.length}  |  🔒 ${this.chunkManager.getAnchoredCount()}`);
 
-    if (!isHome && chunk.state !== 'anchored') {
+    if (!isHome && chunk.state !== 'anchored' && chunk.chunkType === ChunkType.Wild) {
       const c = chunk.fragments.filter(f => f.collected).length;
       const t = chunk.fragments.length;
       let chestLabel = '';

@@ -1,3 +1,5 @@
+import type { ChunkType } from './constants';
+
 export interface FragmentInfo {
   x: number;
   y: number;
@@ -9,6 +11,7 @@ export interface ChunkData {
   cx: number;
   cy: number;
   grid: number[][];
+  chunkType: ChunkType;
   fragments: FragmentInfo[];
   chestUnlocked: boolean;
   chestOpened: boolean;

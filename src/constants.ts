@@ -15,16 +15,22 @@ export const enum TileType {
   Exit = 2,
 }
 
+export enum ChunkType {
+  Wild  = 'wild',
+  Shop  = 'shop',
+  Enemy = 'enemy',
+}
+
 export const Colors = {
-  WALL: 0x2a2a3e,
-  FLOOR: 0x1a1a2e,
-  PLAYER: 0x00ff88,
-  FRAGMENT: 0x44ddff,
-  CHEST_LOCKED: 0x8b4513,
-  CHEST_UNLOCKED: 0xdaa520,
-  HOME: 0x00aaff,
-  ANCHORED: 0x336699,
-  LIBERATED: 0x556633,
-  EXIT: 0x444466,
-  CENTER_FLOOR: 0x22223e,
+  WALL:          0x141428,   // 未锚定区块——深冰蓝（诊异森林）
+  FLOOR:         0x08080e,   // 未锚定区块——近黑
+  CENTER_FLOOR:  0x181838,   // 未锚定区块中心房间——稍亮
+  PLAYER:        0x00ff88,
+  FRAGMENT:      0x44ddff,
+  CHEST_LOCKED:  0x8b4513,
+  CHEST_UNLOCKED:0xdaa520,
+  HOME:          0x88ee44,   // 家园边框——亮草绿
+  ANCHORED:      0x44aa22,   // 锚定区块边框——森林绿
+  LIBERATED:     0x556633,
+  EXIT:          0x323260,
 } as const;

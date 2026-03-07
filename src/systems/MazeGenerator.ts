@@ -116,6 +116,52 @@ export class MazeGenerator {
   }
 
   /**
+   * 生成家园网格——围墙边框 + 十字石板路 + 门柱 + 角落装饰
+   */
+  static generateHome(): number[][] {
+    const size = CHUNK_TILES; // 21
+    // 全面地板开始
+    const grid: number[][] = Array.from(
+      { length: size },
+      () => new Array(size).fill(TileType.Floor),
+    );
+
+    // 1. 围墙边框（除出口外全部是墙）
+    for (let i = 0; i < size; i++) {
+      grid[0][i]        = TileType.Wall;
+      grid[size-1][i]   = TileType.Wall;
+      grid[i][0]        = TileType.Wall;
+      grid[i][size-1]   = TileType.Wall;
+    }
+    grid[0][MID]        = TileType.Exit; // 上
+    grid[size-1][MID]   = TileType.Exit; // 下
+    grid[MID][0]        = TileType.Exit; // 左
+    grid[MID][size-1]   = TileType.Exit; // 右
+
+    // 2. 门柱（进入时两侧各一块石住）
+    // 上门
+    grid[2][MID-1] = TileType.Wall; grid[2][MID+1] = TileType.Wall;
+    // 下门
+    grid[size-3][MID-1] = TileType.Wall; grid[size-3][MID+1] = TileType.Wall;
+    // 左门
+    grid[MID-1][2] = TileType.Wall; grid[MID+1][2] = TileType.Wall;
+    // 右门
+    grid[MID-1][size-3] = TileType.Wall; grid[MID+1][size-3] = TileType.Wall;
+
+    // 3. 角落小堆装饰石
+    const corners = [2, size-3] as const;
+    for (const cy2 of corners) {
+      for (const cx2 of corners) {
+        grid[cy2][cx2]   = TileType.Wall;
+        grid[cy2][cx2 + (cx2 < MID ? 1 : -1)] = TileType.Wall;
+        grid[cy2 + (cy2 < MID ? 1 : -1)][cx2] = TileType.Wall;
+      }
+    }
+
+    return grid;
+  }
+
+  /**
    * 在通路格上放置碎片（保证可达）
    */
   static placeFragments(

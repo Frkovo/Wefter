@@ -2,6 +2,7 @@ import type { SaveData, MapKey } from '../types';
 
 const SAVE_KEY = 'weft_save_v2';
 const ANCHOR_KEY = 'weft_anchored_v2';
+const VISITED_KEY = 'weft_visited_v1';
 
 export class SaveManager {
   static save(data: SaveData): void {
@@ -30,8 +31,22 @@ export class SaveManager {
     }
   }
 
+  static saveVisited(data: Record<string, boolean>): void {
+    localStorage.setItem(VISITED_KEY, JSON.stringify(data));
+  }
+
+  static loadVisited(): Record<string, boolean> {
+    try {
+      const raw = localStorage.getItem(VISITED_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
   static clear(): void {
     localStorage.removeItem(SAVE_KEY);
     localStorage.removeItem(ANCHOR_KEY);
+    localStorage.removeItem(VISITED_KEY);
   }
 }

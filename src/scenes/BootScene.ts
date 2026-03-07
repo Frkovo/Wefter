@@ -48,22 +48,55 @@ export class BootScene extends Phaser.Scene {
       },
     );
 
-    // 家园地板
+    // 家园地板——亮草绿
     this.tex(
       'homeFloor', S, (g) => {
-        g.fillStyle(Colors.FLOOR, 1);
+        g.fillStyle(0x70c050, 1);
         g.fillRect(0, 0, S, S);
-        g.lineStyle(1, Colors.HOME, 0.12);
+        g.lineStyle(1, 0x50a030, 0.5);
         g.strokeRect(0, 0, S, S);
       },
     );
 
-    // 中心房间地板
+    // 家园石板路——米灰石
+    this.tex(
+      'pathFloor', S, (g) => {
+        g.fillStyle(0xb0a888, 1);
+        g.fillRect(0, 0, S, S);
+        g.lineStyle(1, 0x888060, 0.6);
+        g.strokeRect(1, 1, S - 2, S - 2);
+        // 砖缝细节
+        g.lineStyle(1, 0x999070, 0.3);
+        g.lineBetween(S / 2, 1, S / 2, S - 1);
+      },
+    );
+
+    // 锚定地板——森林绿（解放、天晴感）
+    this.tex(
+      'anchoredFloor', S, (g) => {
+        g.fillStyle(0x4a8a30, 1);
+        g.fillRect(0, 0, S, S);
+        g.lineStyle(1, 0x386020, 0.5);
+        g.strokeRect(0, 0, S, S);
+      },
+    );
+
+    // 锚定墙壁——深林暗绿
+    this.tex(
+      'anchoredWall', S, (g) => {
+        g.fillStyle(0x1e3a14, 1);
+        g.fillRect(0, 0, S, S);
+        g.lineStyle(1, 0x162a0e, 0.8);
+        g.strokeRect(0, 0, S, S);
+      },
+    );
+
+    // 中心房间地板（未锚定区块，稍亮于普通地板）
     this.tex(
       'centerFloor', S, (g) => {
         g.fillStyle(Colors.CENTER_FLOOR, 1);
         g.fillRect(0, 0, S, S);
-        g.lineStyle(1, 0x3a3a5e, 0.25);
+        g.lineStyle(1, 0x2a2a50, 0.4);
         g.strokeRect(0, 0, S, S);
       },
     );

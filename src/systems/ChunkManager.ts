@@ -1,17 +1,19 @@
 import { SeedProvider } from './SeedProvider';
 import { MazeGenerator } from './MazeGenerator';
 import { SaveManager } from './SaveManager';
-import { CHUNK_TILES, MID, TileType } from '../constants';
+import { CHUNK_TILES, MID, TileType, ChunkType } from '../constants';
 import type { ChunkData, AnchoredChunkData } from '../types';
 
 export class ChunkManager {
   private seedProvider: SeedProvider;
   private chunks = new Map<string, ChunkData>();
   private anchoredData: Record<string, AnchoredChunkData>;
+  private liberatedData: Record<string, boolean>;
 
   constructor(seedProvider: SeedProvider) {
     this.seedProvider = seedProvider;
     this.anchoredData = SaveManager.loadAnchored();
+    this.liberatedData = SaveManager.loadVisited();
 
     // (0,0) 家园：固定 seed 生成，始终锚定
     if (!this.anchoredData['0,0']) {
@@ -28,6 +30,15 @@ export class ChunkManager {
     return `${cx},${cy}`;
   }
 
+  private chunkTypeFor(cx: number, cy: number): ChunkType {
+    // 位置哈希：与 seed 无关，同一坐标永远相同类型
+    const n = ((Math.imul(cx, 0x9e3779b9) ^ Math.imul(cy, 0x6c62272e)) >>> 0);
+    const r = n % 10;
+    if (r < 6) return ChunkType.Wild;
+    if (r < 8) return ChunkType.Shop;
+    return ChunkType.Enemy;
+  }
+
   isAnchored(cx: number, cy: number): boolean {
     return !!this.anchoredData[this.key(cx, cy)];
   }
@@ -39,11 +50,30 @@ export class ChunkManager {
   getChunk(cx: number, cy: number): ChunkData {
     const k = this.key(cx, cy);
 
+    // 家园 (0,0)：全开放地板，始终安全
+    if (this.isHome(cx, cy)) {
+      if (!this.chunks.has(k)) {
+        this.chunks.set(k, {
+          cx: 0, cy: 0,
+          chunkType: ChunkType.Wild,
+          grid: MazeGenerator.generateHome(),
+          fragments: [],
+          chestUnlocked: true,
+          chestOpened: true,
+          state: 'anchored',
+          seed: 0,
+        });
+      }
+      return this.chunks.get(k)!;
+    }
+
     // 已锚定
     if (this.anchoredData[k]) {
       if (!this.chunks.has(k)) {
+        const storedType = (this.anchoredData[k].type as ChunkType) || ChunkType.Wild;
         this.chunks.set(k, {
           cx, cy,
+          chunkType: storedType,
           grid: this.anchoredData[k].grid,
           fragments: [],
           chestUnlocked: true,
@@ -61,12 +91,14 @@ export class ChunkManager {
     if (existing && existing.seed === seed) return existing;
 
     // 生成新迷宫；若该区块已被解放（开过宝箱但尚未锚定），则不再生成碎片和宝箱
-    const wasLiberated = existing?.chestOpened ?? false;
+    const wasLiberated = this.liberatedData[k] ?? false;
+    const chunkType = this.chunkTypeFor(cx, cy);
     const grid = MazeGenerator.generate(seed);
-    const fragments = wasLiberated ? [] : MazeGenerator.placeFragments(grid, seed, cx, cy);
+    const isWild = chunkType === ChunkType.Wild;
+    const fragments = (wasLiberated || !isWild) ? [] : MazeGenerator.placeFragments(grid, seed, cx, cy);
 
     const chunk: ChunkData = {
-      cx, cy, grid, fragments,
+      cx, cy, grid, fragments, chunkType,
       chestUnlocked: wasLiberated,
       chestOpened: wasLiberated,
       state: 'uncharted',
@@ -77,16 +109,28 @@ export class ChunkManager {
   }
 
   /**
+   * 标记区块已解放（宝箱已开，但尚未锚定）
+   * GameScene 开箱后调用，确保刷新页面后状态不丢失
+   */
+  liberateChunk(cx: number, cy: number): void {
+    const k = this.key(cx, cy);
+    this.liberatedData[k] = true;
+    SaveManager.saveVisited(this.liberatedData);
+  }
+
+  /**
    * 锚定一个区块（用钥匙中的 grid 快照）
    */
   anchorChunk(cx: number, cy: number, grid: number[][]): boolean {
     const k = this.key(cx, cy);
-    this.anchoredData[k] = { grid, type: 'wild', anchoredAt: Date.now() };
+    const existingType = this.chunks.get(k)?.chunkType ?? ChunkType.Wild;
+    this.anchoredData[k] = { grid, type: existingType, anchoredAt: Date.now() };
     SaveManager.saveAnchored(this.anchoredData);
 
     // 更新缓存
     this.chunks.set(k, {
       cx, cy, grid,
+      chunkType: existingType,
       fragments: [],
       chestUnlocked: true,
       chestOpened: true,
