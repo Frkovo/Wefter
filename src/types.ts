@@ -92,5 +92,6 @@ export interface AnchoredChunkData {
   shopRefreshAt?: number;
   shopOffers?: string[];
   lastRegenDate?: string;    // 'YYYY-MM-DD'：最近一次碎片刷新日期
-  dailyChestOpened?: boolean; // 今日宝箱是否已领取
+  dailyChestOpened?: boolean; // 今日碎片是否已全部领取
+  regenVersion?: number;      // 刷新系统版本，不匹配则强制重置
 }

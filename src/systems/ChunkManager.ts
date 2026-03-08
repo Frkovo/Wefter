@@ -1,7 +1,7 @@
 import { SeedProvider } from './SeedProvider';
 import { MazeGenerator } from './MazeGenerator';
 import { SaveManager } from './SaveManager';
-import { CHUNK_TILES, MID, TileType, ChunkType, ITEM_POOL, SHOP_OFFER_COUNT, DAILY_FRAGMENT_COUNT } from '../constants';
+import { CHUNK_TILES, MID, TileType, ChunkType, ITEM_POOL, SHOP_OFFER_COUNT, DAILY_FRAGMENT_COUNT, DAILY_REGEN_VERSION } from '../constants';
 import type { ChunkData, AnchoredChunkData } from '../types';
 
 export class ChunkManager {
@@ -225,17 +225,21 @@ export class ChunkManager {
     if (!ad) return;
     const today = this.dateStr();
 
-    if (ad.lastRegenDate !== today) {
-      // 新的一天：重新生成 DAILY_FRAGMENT_COUNT 个碎片
+    // 版本不匹配（包含旧存档、a0e8b32 过渡数据）→ 无条件重新生成
+    const isNewVersion = ad.regenVersion === DAILY_REGEN_VERSION;
+
+    if (!isNewVersion || ad.lastRegenDate !== today) {
+      // 新的一天 或 版本升级：重新生成 DAILY_FRAGMENT_COUNT 个碎片
       const seed = this.dailySeed(chunk.cx, chunk.cy, today);
       chunk.fragments = MazeGenerator.placeFragments(chunk.grid, seed, chunk.cx, chunk.cy, DAILY_FRAGMENT_COUNT);
       chunk.chestUnlocked = false;
       chunk.chestOpened = false;
       ad.lastRegenDate = today;
       ad.dailyChestOpened = false;
+      ad.regenVersion = DAILY_REGEN_VERSION;
       SaveManager.saveAnchored(this.anchoredData);
     } else if (chunk.fragments.length === 0) {
-      // 同一天但缓存为空（新会话）：恢复今日状态
+      // 同一天、同版本、缓存为空（刷新页面）：恢复今日状态
       if (ad.dailyChestOpened) {
         // 今日已全部领取，fragments 保持空
         chunk.chestOpened = true;
