@@ -145,12 +145,15 @@ export class ChunkManager {
     const k = this.key(cx, cy);
     const existingType = this.chunks.get(k)?.chunkType ?? ChunkType.Wild;
     const existingSeed = this.chunks.get(k)?.seed ?? 0;
-    this.anchoredData[k] = { grid, type: existingType, anchoredAt: Date.now() };
+    // 商店始终用模板 grid（不保存迷宫快照）；其他类型保存传入的快照
+    const isShop = existingType === ChunkType.Shop;
+    const storedGrid = isShop ? MazeGenerator.generateShopFloor() : grid;
+    this.anchoredData[k] = { grid: storedGrid, type: existingType, anchoredAt: Date.now() };
     SaveManager.saveAnchored(this.anchoredData);
 
     // 更新缓存
     this.chunks.set(k, {
-      cx, cy, grid,
+      cx, cy, grid: storedGrid,
       chunkType: existingType,
       fragments: [],
       enemies: [],
