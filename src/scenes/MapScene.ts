@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { VIEWPORT_W, VIEWPORT_H, Colors } from '../constants';
+import { VIEWPORT_W, VIEWPORT_H, Colors, ChunkType } from '../constants';
 import type { ChunkManager } from '../systems/ChunkManager';
 
 interface MapSceneData {
@@ -43,7 +43,11 @@ export class MapScene extends Phaser.Scene {
     const cx0 = VIEWPORT_W / 2;
     const cy0 = VIEWPORT_H / 2;
 
-    const anchoredSet = new Set(this.chunkManager.getAllAnchoredKeys());
+    const anchoredTypeMap = this.chunkManager.getAnchoredTypeMap();
+    const anchoredSet = new Set(Object.keys(anchoredTypeMap));
+    const SHOP_COLOR   = 0xcc8800;
+    const ENEMY_COLOR  = 0x882222;
+    const WILD_COLOR   = Colors.ANCHORED;
 
     // 悬浮提示（动态更新）
     const tooltip = this.add.text(VIEWPORT_W / 2, VIEWPORT_H - 55, '', {
@@ -62,10 +66,13 @@ export class MapScene extends Phaser.Scene {
         const isAnchored = anchoredSet.has(key);
         const isPlayer = dx === 0 && dy === 0;
         const isTeleportable = isHome || isAnchored;
+        const chunkType = anchoredTypeMap[key] as ChunkType | undefined;
 
         let color = 0x1a1a2e, alpha = 0.3;
-        if (isHome)          { color = Colors.HOME;    alpha = 0.8; }
-        else if (isAnchored) { color = Colors.ANCHORED; alpha = 0.7; }
+        if (isHome)                                    { color = Colors.HOME;  alpha = 0.8; }
+        else if (isAnchored && chunkType === ChunkType.Shop)  { color = SHOP_COLOR;  alpha = 0.8; }
+        else if (isAnchored && chunkType === ChunkType.Enemy) { color = ENEMY_COLOR; alpha = 0.7; }
+        else if (isAnchored)                           { color = WILD_COLOR;   alpha = 0.7; }
 
         const cell = this.add.rectangle(px, py, cellSize - 2, cellSize - 2, color, alpha);
 
@@ -73,9 +80,11 @@ export class MapScene extends Phaser.Scene {
 
         // 图标
         let label = '';
-        if (isHome) label = '🏠';
-        else if (isAnchored) label = '🔒';
-        else if (isPlayer) label = '▲';
+        if (isHome)                                         label = '🏠';
+        else if (isAnchored && chunkType === ChunkType.Shop)  label = '🏩';
+        else if (isAnchored && chunkType === ChunkType.Enemy) label = '⚔️';
+        else if (isAnchored)                                label = '🔒';
+        else if (isPlayer)                                  label = '▲';
 
         if (label) {
           this.add.text(px, py, label, {
@@ -95,11 +104,15 @@ export class MapScene extends Phaser.Scene {
         if (isTeleportable && !isPlayer) {
           cell.setInteractive({ useHandCursor: this.canTeleport });
 
+          const typeLabel = isHome ? '家园' :
+            chunkType === ChunkType.Shop  ? '锚定商店' :
+            chunkType === ChunkType.Enemy ? '锚定敌营' : '锚定區块';
+
           cell.on('pointerover', () => {
             cell.setStrokeStyle(2, this.canTeleport ? 0x00ff88 : 0xff6644);
             tooltip.setText(
               this.canTeleport
-                ? `点击传送至 (${cx}, ${cy})`
+                ? `点击传送至 (${cx}, ${cy}) [${typeLabel}]`
                 : '需在已锚定区块才能使用传送',
             );
           });
@@ -119,13 +132,15 @@ export class MapScene extends Phaser.Scene {
 
     // 图例
     const legends: { color: number; label: string }[] = [
-      { color: Colors.HOME,     label: '家园' },
-      { color: Colors.ANCHORED, label: '已锚定（可传送）' },
+      { color: Colors.HOME,  label: '家园' },
+      { color: WILD_COLOR,   label: '锚定荆野' },
+      { color: SHOP_COLOR,   label: '锚定商店' },
+      { color: ENEMY_COLOR,  label: '锚定敌营' },
     ];
     legends.forEach((l, i) => {
-      const lx = 20 + i * 130;
-      this.add.rectangle(lx + 8, VIEWPORT_H - 60, 14, 14, l.color, 0.8);
-      this.add.text(lx + 20, VIEWPORT_H - 60, l.label, {
+      const lx = 16 + i * 115;
+      this.add.rectangle(lx + 7, VIEWPORT_H - 60, 14, 14, l.color, 0.8);
+      this.add.text(lx + 18, VIEWPORT_H - 60, l.label, {
         fontSize: '12px', fontFamily: '"Microsoft YaHei", sans-serif', color: '#aabbcc',
       }).setOrigin(0, 0.5);
     });

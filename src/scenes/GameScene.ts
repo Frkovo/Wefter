@@ -1431,6 +1431,19 @@ export class GameScene extends Phaser.Scene {
       const total = chunk.enemies.length;
       const chestLabel = chunk.chestOpened ? ' 📦✅' : chunk.chestUnlocked ? ' 📦✨' : '';
       this.hudFragments.setText(total > 0 ? `⚔️ ${alive}/${total}${chestLabel}` : '');
+    } else if (chunk.chunkType === ChunkType.Shop && chunk.state === 'anchored') {
+      // 锚定商店：显示刷新倒计时
+      const now = Date.now();
+      if (chunk.shopPurchased && chunk.shopRefreshAt > now) {
+        const secsLeft = Math.ceil((chunk.shopRefreshAt - now) / 1000);
+        const mins = Math.floor(secsLeft / 60);
+        const secs = secsLeft % 60;
+        this.hudFragments.setText(`🏩 商店刷新: ${mins}:${secs.toString().padStart(2, '0')}`);
+      } else if (!chunk.shopPurchased && chunk.shopOffers.length > 0) {
+        this.hudFragments.setText('🏩 商店 — F 开始购物');
+      } else {
+        this.hudFragments.setText('🏩 商店');
+      }
     } else {
       this.hudFragments.setText('');
     }

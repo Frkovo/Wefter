@@ -184,6 +184,15 @@ export class ChunkManager {
     return Object.keys(this.anchoredData);
   }
 
+  /** 返回所有锚定区块的类型映射（key → ChunkType），供地图标注用 */
+  getAnchoredTypeMap(): Record<string, ChunkType> {
+    const map: Record<string, ChunkType> = {};
+    for (const k of Object.keys(this.anchoredData)) {
+      map[k] = (this.anchoredData[k].type as ChunkType) || ChunkType.Wild;
+    }
+    return map;
+  }
+
   /**
    * 检查一个 tile 位置是否安全（Floor 或 Exit）
    */
