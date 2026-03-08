@@ -191,6 +191,7 @@ export class MazeGenerator {
     seed: number,
     cx: number,
     cy: number,
+    fragCount = FRAGMENT_COUNT,
   ): FragmentInfo[] {
     const rng = new LCG(seed ^ 0xdeadbeef);
     const candidates: { x: number; y: number }[] = [];
@@ -210,7 +211,7 @@ export class MazeGenerator {
     }
 
     rng.shuffle(candidates);
-    const count = Math.min(FRAGMENT_COUNT, candidates.length);
+    const count = Math.min(fragCount, candidates.length);
     return candidates.slice(0, count).map((pos, i) => ({
       x: pos.x,
       y: pos.y,

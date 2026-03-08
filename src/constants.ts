@@ -7,6 +7,7 @@ export const OFFSET_X = Math.floor((VIEWPORT_W - CHUNK_PX) / 2); // 106
 export const OFFSET_Y = Math.floor((VIEWPORT_H - CHUNK_PX) / 2); // 6
 export const MID = Math.floor(CHUNK_TILES / 2); // 10
 export const FRAGMENT_COUNT = 5;
+export const DAILY_FRAGMENT_COUNT = 10; // 锚定荒野每日刷新碎片数
 export const PLAYER_MOVE_SPEED = 10; // tiles/sec
 export const PLAYER_MAX_HP = 20;
 export const HEAL_BANK_MAX = 200;

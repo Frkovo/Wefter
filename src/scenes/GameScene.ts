@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import {
   TILE_SIZE, CHUNK_TILES, CHUNK_PX, VIEWPORT_W, VIEWPORT_H,
-  OFFSET_X, OFFSET_Y, MID, FRAGMENT_COUNT, PLAYER_MOVE_SPEED,
+  OFFSET_X, OFFSET_Y, MID, FRAGMENT_COUNT, DAILY_FRAGMENT_COUNT, PLAYER_MOVE_SPEED,
   TileType, Colors, ChunkType,
   PLAYER_MAX_HP, HEAL_BANK_MAX, HEAL_BANK_REGEN_MS,
   SCOUT_DETECT_RADIUS, CHASER_DETECT_STEPS,
@@ -338,9 +338,13 @@ export class GameScene extends Phaser.Scene {
   private tryAnchoredWildNotice(): void {
     const chunk = this.currentChunk;
     if (!chunk || chunk.chunkType !== ChunkType.Wild || chunk.state !== 'anchored') return;
-    if (chunk.chestOpened) return;
-    const hasFragments = chunk.fragments.some(f => !f.collected);
-    if (hasFragments) this.showMessage('🌿 领土资源已刷新，收集碎片可领取附加奖励', 2500);
+    const remaining = chunk.fragments.filter(f => !f.collected).length;
+    if (remaining > 0) {
+      this.showMessage(`🌿 领土资源已刷新！共 ${DAILY_FRAGMENT_COUNT} 个碎片待收集`, 2500);
+    } else if (chunk.fragments.length > 0 || chunk.chestOpened) {
+      // fragments 全收完或今日已领取
+      this.showMessage('🌿 今日资源已领取，明日零点刷新', 2000);
+    }
   }
 
   private tryHomeHeal(): void {
@@ -470,9 +474,8 @@ export class GameScene extends Phaser.Scene {
         this.fragmentLayer.add(this.chestSprite);
         return;
       }
-      // 锚定荒野：根据宝箱状态渲染（同未锚定逻辑）
-      if (chunk.chunkType !== ChunkType.Wild) return;
-      // fall through to chest rendering below
+      // 锚定荒野：无宝箱，全部领取后直接提示，不渲染任何箱子
+      return;
     }
     if (this.chunkManager.isHome(chunk.cx, chunk.cy)) return;
 
@@ -559,29 +562,44 @@ export class GameScene extends Phaser.Scene {
       }
 
       const collected = chunk.fragments.filter(f => f.collected).length;
-      this.showFloatingText(
-        `✦ ${collected}/${FRAGMENT_COUNT}`,
-        frag.x * TILE_SIZE + TILE_SIZE / 2,
-        frag.y * TILE_SIZE,
-      );
 
-      // 检查是否全部收集
-      if (collected >= FRAGMENT_COUNT && !chunk.chestUnlocked) {
-        chunk.chestUnlocked = true;
-        this.cameras.main.flash(400, 50, 150, 200);
-        this.showMessage('✦ 碎片收集完毕！中心区宝箱已解锁！', 3000);
-        // 更新宝箱显示
-        if (this.chestSprite) {
-          this.chestSprite.setTexture('chest_unlocked');
-          this.tweens.add({
-            targets: this.chestSprite,
-            scaleX: { from: 1, to: 1.15 },
-            scaleY: { from: 1, to: 1.15 },
-            duration: 600,
-            yoyo: true,
-            repeat: -1,
-            ease: 'Sine.easeInOut',
-          });
+      if (chunk.state === 'anchored') {
+        // 锚定荒野：独立逻辑，收完即提示，无宝箱
+        const total = chunk.fragments.length; // = DAILY_FRAGMENT_COUNT
+        this.showFloatingText(
+          `✦ ${collected}/${total}`,
+          frag.x * TILE_SIZE + TILE_SIZE / 2,
+          frag.y * TILE_SIZE,
+        );
+        if (collected >= total) {
+          this.chunkManager.markDailyChestOpened(chunk.cx, chunk.cy);
+          this.cameras.main.flash(500, 80, 200, 80);
+          this.showMessage(`🌿 今日资源已全部领取！
+明日零点刷新，请届时再来`, 3500);
+        }
+      } else {
+        // 未锚定荒野：原有逻辑
+        this.showFloatingText(
+          `✦ ${collected}/${FRAGMENT_COUNT}`,
+          frag.x * TILE_SIZE + TILE_SIZE / 2,
+          frag.y * TILE_SIZE,
+        );
+        if (collected >= FRAGMENT_COUNT && !chunk.chestUnlocked) {
+          chunk.chestUnlocked = true;
+          this.cameras.main.flash(400, 50, 150, 200);
+          this.showMessage('✦ 碎片收集完毕！中心区宝箱已解锁！', 3000);
+          if (this.chestSprite) {
+            this.chestSprite.setTexture('chest_unlocked');
+            this.tweens.add({
+              targets: this.chestSprite,
+              scaleX: { from: 1, to: 1.15 },
+              scaleY: { from: 1, to: 1.15 },
+              duration: 600,
+              yoyo: true,
+              repeat: -1,
+              ease: 'Sine.easeInOut',
+            });
+          }
         }
       }
 
@@ -591,7 +609,7 @@ export class GameScene extends Phaser.Scene {
 
   private checkChestInteraction(): void {
     const chunk = this.currentChunk;
-    if (!chunk) return;
+    if (!chunk || chunk.state === 'anchored') return; // 锚定区块无宝箱交互
     if (this.chunkManager.isHome(chunk.cx, chunk.cy)) return;
     if (chunk.chunkType !== ChunkType.Wild) return;
     if (!chunk.chestUnlocked || chunk.chestOpened) return;
@@ -600,34 +618,21 @@ export class GameScene extends Phaser.Scene {
     chunk.chestOpened = true;
     this.gainCoins(COIN_WILD_CHEST);
     this.tryChestEquipDrop(chunk.cx, chunk.cy, 'wild_chest');
+    this.chunkManager.liberateChunk(chunk.cx, chunk.cy);
 
-    if (chunk.state === 'anchored') {
-      // 锚定荒野：当日资源采集，不产生钥匙也不重新解放
-      this.chunkManager.markDailyChestOpened(chunk.cx, chunk.cy);
-      if (this.chestSprite) {
-        this.tweens.killTweensOf(this.chestSprite);
-        this.chestSprite.setTexture('chest_opened');
-        this.chestSprite.setScale(1);
-      }
-      this.cameras.main.flash(400, 50, 180, 50);
-      this.showMessage(`🏡 领土资源已领取！\n+${COIN_WILD_CHEST}🪙  明天可再次刷新`, 2500);
-    } else {
-      // 普通荒野：解放区块，获得钥匙
-      this.chunkManager.liberateChunk(chunk.cx, chunk.cy);
-      const gridSnapshot = chunk.grid.map(row => [...row]);
-      const label = `从 (${chunk.cx}, ${chunk.cy}) 获得`;
-      this.playerKeys.push({ grid: gridSnapshot, label });
-      if (this.chestSprite) {
-        this.tweens.killTweensOf(this.chestSprite);
-        this.chestSprite.setTexture('chest_opened');
-        this.chestSprite.setScale(1);
-      }
-      this.cameras.main.flash(500, 100, 200, 100);
-      this.showMessage(
-        `🔑 获得地图钥匙「从 (${chunk.cx}, ${chunk.cy}) 获得」\n在任意未锚定区块按 E 即可使用`,
-        4000,
-      );
+    const gridSnapshot = chunk.grid.map(row => [...row]);
+    const label = `从 (${chunk.cx}, ${chunk.cy}) 获得`;
+    this.playerKeys.push({ grid: gridSnapshot, label });
+    if (this.chestSprite) {
+      this.tweens.killTweensOf(this.chestSprite);
+      this.chestSprite.setTexture('chest_opened');
+      this.chestSprite.setScale(1);
     }
+    this.cameras.main.flash(500, 100, 200, 100);
+    this.showMessage(
+      `🔑 获得地图钥匙「从 (${chunk.cx}, ${chunk.cy}) 获得」\n在任意未锚定区块按 E 即可使用`,
+      4000,
+    );
     this.updateHUD();
   }
 

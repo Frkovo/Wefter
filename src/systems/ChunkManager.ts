@@ -1,7 +1,7 @@
 import { SeedProvider } from './SeedProvider';
 import { MazeGenerator } from './MazeGenerator';
 import { SaveManager } from './SaveManager';
-import { CHUNK_TILES, MID, TileType, ChunkType, ITEM_POOL, SHOP_OFFER_COUNT } from '../constants';
+import { CHUNK_TILES, MID, TileType, ChunkType, ITEM_POOL, SHOP_OFFER_COUNT, DAILY_FRAGMENT_COUNT } from '../constants';
 import type { ChunkData, AnchoredChunkData } from '../types';
 
 export class ChunkManager {
@@ -226,9 +226,9 @@ export class ChunkManager {
     const today = this.dateStr();
 
     if (ad.lastRegenDate !== today) {
-      // 新的一天：重新生成碎片
+      // 新的一天：重新生成 DAILY_FRAGMENT_COUNT 个碎片
       const seed = this.dailySeed(chunk.cx, chunk.cy, today);
-      chunk.fragments = MazeGenerator.placeFragments(chunk.grid, seed, chunk.cx, chunk.cy);
+      chunk.fragments = MazeGenerator.placeFragments(chunk.grid, seed, chunk.cx, chunk.cy, DAILY_FRAGMENT_COUNT);
       chunk.chestUnlocked = false;
       chunk.chestOpened = false;
       ad.lastRegenDate = today;
@@ -237,11 +237,11 @@ export class ChunkManager {
     } else if (chunk.fragments.length === 0) {
       // 同一天但缓存为空（新会话）：恢复今日状态
       if (ad.dailyChestOpened) {
+        // 今日已全部领取，fragments 保持空
         chunk.chestOpened = true;
-        chunk.chestUnlocked = true;
       } else {
         const seed = this.dailySeed(chunk.cx, chunk.cy, today);
-        chunk.fragments = MazeGenerator.placeFragments(chunk.grid, seed, chunk.cx, chunk.cy);
+        chunk.fragments = MazeGenerator.placeFragments(chunk.grid, seed, chunk.cx, chunk.cy, DAILY_FRAGMENT_COUNT);
         chunk.chestUnlocked = false;
         chunk.chestOpened = false;
       }
