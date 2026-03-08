@@ -59,6 +59,7 @@ export class GameScene extends Phaser.Scene {
   private moveTarget = { x: 0, y: 0 };
   private moveDir = { x: 0, y: 0 };   // keydown/keyup 维护的当前方向
   private moveCooldown = 0;            // 步进冷却时长（ms）
+  private hudTickAccum = 0;            // 商店倒计时 HUD 刷新累计（ms）
   private static readonly MOVE_STEP_MS = 60; // 连续移动间隔，与动画时长匹配
 
   // Current chunk
@@ -209,6 +210,18 @@ export class GameScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     if (this.scene.isActive('MapScene') || this.scene.isActive('AnchorScene')) return;
     this.handleMovement(delta);
+
+    // 锚定商店倒计时实时刷新（每秒更新一次 HUD）
+    const chunk = this.currentChunk;
+    if (chunk?.chunkType === ChunkType.Shop && chunk.state === 'anchored' && chunk.shopPurchased) {
+      this.hudTickAccum += delta;
+      if (this.hudTickAccum >= 1000) {
+        this.hudTickAccum = 0;
+        this.updateHUD();
+      }
+    } else {
+      this.hudTickAccum = 0;
+    }
   }
 
   /* ================================================================
