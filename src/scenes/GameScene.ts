@@ -90,7 +90,12 @@ export class GameScene extends Phaser.Scene {
   private hudStatus!: Phaser.GameObjects.Text;
   private hudKeys!: Phaser.GameObjects.Text;
   private hudFragments!: Phaser.GameObjects.Text;
-  private hudHint!: Phaser.GameObjects.Text;
+  private hudBtnBag!:    Phaser.GameObjects.Text;
+  private hudBtnEquip!:  Phaser.GameObjects.Text;
+  private hudBtnMap!:    Phaser.GameObjects.Text;
+  private hudBtnStatus!: Phaser.GameObjects.Text;
+  private hudBtnE!:      Phaser.GameObjects.Text;  // 条件显示：使用钥匙
+  private hudBtnF!:      Phaser.GameObjects.Text;  // 条件显示：进入商店
 
   // Message
   private msgText: Phaser.GameObjects.Text | null = null;
@@ -1499,12 +1504,46 @@ export class GameScene extends Phaser.Scene {
     this.hudKeys = this.add.text(10, 58, '', style).setScrollFactor(0).setDepth(100);
     this.hudFragments = this.add.text(VIEWPORT_W - 10, 10, '', { ...style, align: 'right' })
       .setScrollFactor(0).setDepth(100).setOrigin(1, 0);
-    this.hudHint = this.add.text(VIEWPORT_W / 2, VIEWPORT_H - 16, '', {
+    const btnStyle: Phaser.Types.GameObjects.Text.TextStyle = {
       fontSize: '12px',
-      fontFamily: '"Microsoft YaHei", sans-serif',
-      color: '#667788',
-      align: 'center',
-    }).setScrollFactor(0).setDepth(100).setOrigin(0.5, 1);
+      fontFamily: '"Microsoft YaHei", monospace',
+      color: '#aaccee',
+      backgroundColor: '#1a223399',
+      padding: { x: 7, y: 3 },
+    };
+    const bY = VIEWPORT_H - 8;
+
+    this.hudBtnBag = this.add.text(20, bY, '🎒 背包(B)', btnStyle)
+      .setScrollFactor(0).setDepth(100).setOrigin(0, 1)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.openBagUI());
+
+    this.hudBtnEquip = this.add.text(150, bY, '⚔ 装备(G)', btnStyle)
+      .setScrollFactor(0).setDepth(100).setOrigin(0, 1)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.openEquipUI());
+
+    this.hudBtnMap = this.add.text(280, bY, '🗺 地图(M)', btnStyle)
+      .setScrollFactor(0).setDepth(100).setOrigin(0, 1)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.openMap());
+
+    this.hudBtnStatus = this.add.text(410, bY, '📊 状态(Tab)', btnStyle)
+      .setScrollFactor(0).setDepth(100).setOrigin(0, 1)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.showStatus());
+
+    this.hudBtnE = this.add.text(560, bY, '🔑 使用钥匙(E)', btnStyle)
+      .setScrollFactor(0).setDepth(100).setOrigin(0, 1)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.tryAnchor())
+      .setVisible(false);
+
+    this.hudBtnF = this.add.text(560, bY, '🏪 商店(F)', btnStyle)
+      .setScrollFactor(0).setDepth(100).setOrigin(0, 1)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.tryOpenShop())
+      .setVisible(false);
   }
 
   private updateHUD(): void {
@@ -1554,12 +1593,13 @@ export class GameScene extends Phaser.Scene {
       this.hudFragments.setText('');
     }
 
-    let hint = 'WASD 移动';
     const canUseKey = !this.chunkManager.isAnchored(this.playerChunkX, this.playerChunkY)
                    && this.playerKeys.length > 0;
-    if (canUseKey) hint += '  |  E 使用钥匙';
-    hint += '  |  G 装备  |  M 地图  |  TAB 状态';
-    this.hudHint.setText(hint);
+    const isShopOpen = chunk.chunkType === ChunkType.Shop && !chunk.shopPurchased
+                    && chunk.shopOffers.length > 0;
+    this.hudBtnE.setVisible(canUseKey);
+    this.hudBtnF.setVisible(isShopOpen);
+    // E 和 F 互斥时 E 优先（实际不会同时满足）
   }
 
   /* ================================================================
