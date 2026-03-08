@@ -153,6 +153,15 @@ export class MapScene extends Phaser.Scene {
       color: this.canTeleport ? '#667788' : '#886644',
     }).setOrigin(0.5);
 
+    // 关闭按钮
+    const closeBtn = this.add.text(VIEWPORT_W - 12, 12, '✕ 关闭', {
+      fontSize: '14px', fontFamily: '"Microsoft YaHei", monospace',
+      color: '#aabbcc', backgroundColor: '#1a223399', padding: { x: 8, y: 4 },
+    }).setOrigin(1, 0).setDepth(200).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerover', () => closeBtn.setColor('#ffffff'));
+    closeBtn.on('pointerout',  () => closeBtn.setColor('#aabbcc'));
+    closeBtn.on('pointerdown', () => { this.scene.stop(); this.scene.resume('GameScene'); });
+
     const kb = this.input.keyboard!;
     this.keyM = kb.addKey(Phaser.Input.Keyboard.KeyCodes.M);
     this.keyEsc = kb.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
