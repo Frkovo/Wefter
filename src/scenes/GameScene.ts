@@ -200,9 +200,9 @@ export class GameScene extends Phaser.Scene {
     // ---- 触屏 / 鼠标 点击寻路 ----
     this.input.on('pointerdown', (ptr: Phaser.Input.Pointer) => {
       if (!this.currentChunk) return;
-      // 将屏幕坐标转换为网格坐标
-      const gx = Math.floor(ptr.x / TILE_SIZE);
-      const gy = Math.floor(ptr.y / TILE_SIZE);
+      // 将屏幕坐标转换为网格坐标（需减去 gameLayer 的偏移量）
+      const gx = Math.floor((ptr.worldX - OFFSET_X) / TILE_SIZE);
+      const gy = Math.floor((ptr.worldY - OFFSET_Y) / TILE_SIZE);
       if (gx < 0 || gx >= CHUNK_TILES || gy < 0 || gy >= CHUNK_TILES) return;
       // 清除键盘方向，计算 A* 路径
       // 若动画进行中，以目标格为起点，避免多走一步
