@@ -205,11 +205,14 @@ export class GameScene extends Phaser.Scene {
       const gy = Math.floor(ptr.y / TILE_SIZE);
       if (gx < 0 || gx >= CHUNK_TILES || gy < 0 || gy >= CHUNK_TILES) return;
       // 清除键盘方向，计算 A* 路径
+      // 若动画进行中，以目标格为起点，避免多走一步
+      const startX = this.isMoving ? this.moveTarget.x : this.playerTileX;
+      const startY = this.isMoving ? this.moveTarget.y : this.playerTileY;
       this.moveDir.x = 0;
       this.moveDir.y = 0;
       this.pathQueue = aStar(
         this.currentChunk.grid,
-        this.playerTileX, this.playerTileY,
+        startX, startY,
         gx, gy,
       );
     });
