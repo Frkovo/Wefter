@@ -1472,6 +1472,11 @@ export class GameScene extends Phaser.Scene {
     if (qid !== quadrantId) return;
     if (this.chunkManager.isAnchored(this.playerChunkX, this.playerChunkY)) return;
 
+    // 立即中断 A* 寻路，迷宫即将重构，旧路径已无效
+    this.pathQueue = [];
+    this.moveDir.x = 0;
+    this.moveDir.y = 0;
+
     this.showMessage('⚡ 迷宫正在重构...', 2000);
     this.time.delayedCall(400, () => {
       this.loadChunk(this.playerChunkX, this.playerChunkY);
